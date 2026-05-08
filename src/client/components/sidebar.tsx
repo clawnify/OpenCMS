@@ -1,13 +1,16 @@
 import { useState } from "react";
-import { Database, MoreHorizontal } from "lucide-react";
+import { Database, MoreHorizontal, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { FieldsPanel } from "./fields-panel";
-import { CollectionMenuDialog } from "./collection-menu-dialog";
+import { LibraryDialog } from "./library-dialog";
+import { NewLibraryDialog } from "./new-library-dialog";
+import type { ContentType } from "@/lib/content-types";
 
 interface Collection {
   id: string;
   label: string;
-  count: number;
+  count?: number;
 }
 
 type SidebarTab = "libraries" | "fields";
@@ -16,13 +19,25 @@ export function Sidebar({
   collections,
   activeId,
   onSelect,
+  contentTypes,
+  onContentTypesChange,
 }: {
   collections: Collection[];
   activeId: string;
   onSelect: (id: string) => void;
+  contentTypes: ContentType[];
+  onContentTypesChange: () => void;
 }) {
   const [tab, setTab] = useState<SidebarTab>("libraries");
-  const [menuFor, setMenuFor] = useState<Collection | null>(null);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [newOpen, setNewOpen] = useState(false);
+
+  const menuCT = menuFor ? contentTypes.find((c) => c.info.pluralName === menuFor) ?? null : null;
+  const activeCT = contentTypes.find((c) => c.info.pluralName === activeId) ?? null;
+  const menuEntryCount =
+    menuCT?.info.pluralName === activeId
+      ? collections.find((c) => c.id === activeId)?.count
+      : undefined;
 
   return (
     <aside className="w-64 border-r border-border bg-sidebar h-full flex flex-col">
@@ -34,30 +49,57 @@ export function Sidebar({
           Fields
         </TabButton>
       </div>
+
       <div className="flex-1 overflow-y-auto">
         {tab === "libraries" ? (
           <div className="px-2 py-2 space-y-0.5">
             {collections.map((c) => (
-              <CollectionRow
+              <LibraryRow
                 key={c.id}
                 collection={c}
                 active={activeId === c.id}
                 onSelect={() => onSelect(c.id)}
-                onMenu={() => setMenuFor(c)}
+                onMenu={() => setMenuFor(c.id)}
               />
             ))}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start gap-2 mt-1 text-muted-foreground"
+              onClick={() => setNewOpen(true)}
+            >
+              <Plus className="size-3.5" />
+              New library
+            </Button>
           </div>
+        ) : activeCT ? (
+          <FieldsPanel contentType={activeCT} onChange={onContentTypesChange} />
         ) : (
-          <FieldsPanel />
+          <div className="px-3 py-3 text-sm text-muted-foreground">No library selected.</div>
         )}
       </div>
 
-      <CollectionMenuDialog collection={menuFor} onClose={() => setMenuFor(null)} />
+      <LibraryDialog
+        contentType={menuCT}
+        entryCount={menuEntryCount}
+        onClose={() => setMenuFor(null)}
+        onChange={onContentTypesChange}
+      />
+
+      <NewLibraryDialog
+        open={newOpen}
+        onOpenChange={setNewOpen}
+        onCreated={(ct) => {
+          setNewOpen(false);
+          onContentTypesChange();
+          onSelect(ct.info.pluralName);
+        }}
+      />
     </aside>
   );
 }
 
-function CollectionRow({
+function LibraryRow({
   collection,
   active,
   onSelect,
@@ -83,9 +125,9 @@ function CollectionRow({
       >
         <Database className="size-3.5 opacity-70 shrink-0" />
         <span className="truncate text-left">{collection.label}</span>
-        <span className="text-xs text-muted-foreground tabular-nums">
-          {collection.count}
-        </span>
+        {collection.count !== undefined && (
+          <span className="text-xs text-muted-foreground tabular-nums">{collection.count}</span>
+        )}
       </button>
       <button
         onClick={onMenu}

@@ -1,6 +1,6 @@
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { PostStatus } from "@/lib/types";
+type PostStatus = "draft" | "live";
 
 const STYLES: Record<PostStatus, string> = {
   live: "bg-emerald-100 text-emerald-700",
