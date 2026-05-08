@@ -4,6 +4,8 @@ A headless content-management studio in the spirit of Strapi / Sanity / Contentf
 
 Auth, plugins, and integrations are handled by Clawnify — this template focuses on a clean editing UI and a typed REST API that Clawnify agents can consume from day one.
 
+<img width="1728" height="425" alt="Image" src="https://github.com/user-attachments/assets/1289ef81-3d97-47b6-9988-9a5b6af6d3d2" />
+
 ## Features
 
 - **Spreadsheet-style table** — every field is a column; cells are inline-editable (text, image, status, featured)
