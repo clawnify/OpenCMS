@@ -1,88 +1,118 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { Plus, Search, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Sidebar } from "./components/sidebar";
-import { PostsTable } from "./components/posts-table";
-import { PostEditor } from "./components/post-editor";
-import { useRouter, matchPostRoute } from "./hooks/use-router";
+import { EntriesTable } from "./components/entries-table";
+import { EntryEditor } from "./components/entry-editor";
+import { useRouter } from "./hooks/use-router";
+import { useContentTypes } from "./hooks/use-content-types";
 import { api } from "./lib/api";
-import type { Post } from "./lib/types";
+import type { ContentType, Entry } from "./lib/content-types";
 
 export function App() {
   const { path, navigate } = useRouter();
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [active, setActive] = useState<Post | null>(null);
+  const { list: contentTypes, refresh: refreshContentTypes, setList: setContentTypes } =
+    useContentTypes();
 
-  const selectedId = matchPostRoute(path);
+  const route = parseRoute(path, contentTypes);
 
-  const load = useCallback(async () => {
-    const list = await api.listPosts();
-    setPosts(list);
-  }, []);
+  const activeCT: ContentType | null = useMemo(() => {
+    if (!route) return contentTypes[0] ?? null;
+    return contentTypes.find((c) => c.info.pluralName === route.pluralName) ?? null;
+  }, [contentTypes, route]);
+
+  const [entries, setEntries] = useState<Entry[]>([]);
+  const [active, setActive] = useState<Entry | null>(null);
+
+  const loadEntries = useCallback(async () => {
+    if (!activeCT) {
+      setEntries([]);
+      return;
+    }
+    const list = await api.listEntries(activeCT.info.pluralName);
+    setEntries(list);
+  }, [activeCT]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    loadEntries();
+  }, [loadEntries]);
+
+  const selectedId = route?.entryId ?? null;
 
   useEffect(() => {
-    if (selectedId == null) {
+    if (selectedId == null || !activeCT) {
       setActive(null);
       return;
     }
-    const cached = posts.find((p) => p.id === selectedId);
+    const cached = entries.find((e) => e.id === selectedId);
     if (cached) {
       setActive(cached);
       return;
     }
-    api.getPost(selectedId).then(setActive).catch(() => navigate("/"));
-  }, [selectedId, posts, navigate]);
+    api
+      .getEntry(activeCT.info.pluralName, selectedId)
+      .then(setActive)
+      .catch(() => navigate(`/${activeCT.info.pluralName}`));
+  }, [selectedId, entries, activeCT, navigate]);
 
-  async function createPost() {
-    const post = await api.createPost();
-    setPosts((p) => [post, ...p]);
-    navigate(`/posts/${post.id}`);
+  async function createEntry() {
+    if (!activeCT) return;
+    const created = await api.createEntry(activeCT.info.pluralName);
+    setEntries((p) => [created, ...p]);
+    navigate(`/${activeCT.info.pluralName}/${created.id}`);
   }
 
-  function onPostChange(updated: Post) {
-    setPosts((list) => list.map((p) => (p.id === updated.id ? updated : p)));
+  function onEntryChange(updated: Entry) {
+    setEntries((list) => list.map((e) => (e.id === updated.id ? updated : e)));
     setActive(updated);
   }
 
-  async function patchPost(id: number, patch: import("./lib/types").PostPatch) {
-    setPosts((list) =>
-      list.map((p) => (p.id === id ? ({ ...p, ...patch } as Post) : p)),
-    );
+  async function patchEntry(id: number, patch: Record<string, unknown>) {
+    if (!activeCT) return;
+    setEntries((list) => list.map((e) => (e.id === id ? ({ ...e, ...patch } as Entry) : e)));
     try {
-      const saved = await api.updatePost(id, patch);
-      onPostChange(saved);
+      const saved = await api.updateEntry(activeCT.info.pluralName, id, patch);
+      onEntryChange(saved);
     } catch (err) {
       console.error(err);
-      load();
+      loadEntries();
     }
   }
 
   async function onDelete() {
-    if (!active) return;
-    if (!window.confirm(`Delete "${active.title}"?`)) return;
-    await api.deletePost(active.id);
-    setPosts((list) => list.filter((p) => p.id !== active.id));
-    navigate("/");
+    if (!active || !activeCT) return;
+    const label = String(active.title ?? active.name ?? `Entry #${active.id}`);
+    if (!window.confirm(`Delete "${label}"?`)) return;
+    await api.deleteEntry(activeCT.info.pluralName, Number(active.id));
+    setEntries((list) => list.filter((e) => e.id !== active.id));
+    navigate(`/${activeCT.info.pluralName}`);
   }
 
-  const collections = [{ id: "posts", label: "Posts", count: posts.length }];
+  const collections = contentTypes.map((ct) => ({
+    id: ct.info.pluralName,
+    label: ct.info.displayName,
+    count: activeCT?.info.pluralName === ct.info.pluralName ? entries.length : undefined,
+  }));
 
   return (
     <div className="h-screen flex bg-background text-foreground overflow-hidden">
-      <Sidebar collections={collections} activeId="posts" onSelect={() => navigate("/")} />
+      <Sidebar
+        collections={collections}
+        activeId={activeCT?.info.pluralName ?? ""}
+        onSelect={(id) => navigate(`/${id}`)}
+        contentTypes={contentTypes}
+        onContentTypesChange={refreshContentTypes}
+      />
       <main className="flex-1 flex flex-col min-w-0">
         <div className="flex items-center gap-2 px-3 h-10 border-b border-border">
           <Button
             variant="ghost"
             size="sm"
-            onClick={createPost}
+            onClick={createEntry}
             className="h-7 w-7 p-0"
-            title="New post"
+            title="New entry"
+            disabled={!activeCT}
           >
             <Plus className="size-4" />
           </Button>
@@ -93,18 +123,25 @@ export function App() {
             <Search className="size-4" />
           </Button>
         </div>
-        <PostsTable
-          posts={posts}
-          onOpen={(id) => navigate(`/posts/${id}`)}
-          onPatch={patchPost}
-          selectedId={selectedId}
-        />
+        {activeCT ? (
+          <EntriesTable
+            contentType={activeCT}
+            entries={entries}
+            onOpen={(id) => navigate(`/${activeCT.info.pluralName}/${id}`)}
+            onPatch={patchEntry}
+            selectedId={selectedId}
+          />
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
+            No libraries yet. Create one from the sidebar.
+          </div>
+        )}
       </main>
 
       <Sheet
         open={!!active}
         onOpenChange={(open) => {
-          if (!open) navigate("/");
+          if (!open && activeCT) navigate(`/${activeCT.info.pluralName}`);
         }}
       >
         <SheetContent
@@ -114,17 +151,20 @@ export function App() {
           className="w-full sm:max-w-[80vw] lg:max-w-[1200px] p-0 gap-0"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
-          {active && (
+          {active && activeCT && (
             <>
-              <SheetTitle className="sr-only">Edit post: {active.title}</SheetTitle>
+              <SheetTitle className="sr-only">
+                Edit {activeCT.info.singularName}: {String(active.title ?? active.name ?? active.id)}
+              </SheetTitle>
               <SheetDescription className="sr-only">
-                Edit fields and rich-text content for the selected post.
+                Edit fields and rich-text content for the selected entry.
               </SheetDescription>
-              <PostEditor
+              <EntryEditor
                 key={active.id}
-                post={active}
-                onChange={onPostChange}
-                onClose={() => navigate("/")}
+                contentType={activeCT}
+                entry={active}
+                onChange={onEntryChange}
+                onClose={() => navigate(`/${activeCT.info.pluralName}`)}
                 onDelete={onDelete}
               />
             </>
@@ -133,4 +173,21 @@ export function App() {
       </Sheet>
     </div>
   );
+}
+
+interface RouteMatch {
+  pluralName: string;
+  entryId: number | null;
+}
+
+function parseRoute(path: string, contentTypes: ContentType[]): RouteMatch | null {
+  const trimmed = path.replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!trimmed) return null;
+  const parts = trimmed.split("/");
+  const pluralName = parts[0];
+  // Only treat as a route if the plural name matches a known library, so we
+  // don't trip on unrelated paths during dev.
+  if (!contentTypes.find((c) => c.info.pluralName === pluralName)) return { pluralName, entryId: null };
+  const entryId = parts[1] ? Number(parts[1]) : null;
+  return { pluralName, entryId: Number.isFinite(entryId) ? entryId : null };
 }

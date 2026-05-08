@@ -1,27 +1,71 @@
-import type { Post, PostPatch } from "./types";
+import type { ContentType, Entry } from "./content-types";
 
 async function json<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    let msg = `${res.status} ${res.statusText}`;
+    try {
+      const body = await res.json();
+      if (body && typeof body === "object" && "error" in body) msg = String(body.error);
+    } catch {
+      /* noop */
+    }
+    throw new Error(msg);
+  }
   return res.json();
 }
 
 export const api = {
-  listPosts: () => fetch("/api/posts").then(json<Post[]>),
-  getPost: (id: number) => fetch(`/api/posts/${id}`).then(json<Post>),
-  createPost: (title?: string) =>
-    fetch("/api/posts", {
+  // ── Content types ────────────────────────────────────────────────
+  listContentTypes: () => fetch("/api/content-types").then(json<ContentType[]>),
+  getContentType: (uid: string) =>
+    fetch(`/api/content-types/${encodeURIComponent(uid)}`).then(json<ContentType>),
+  createContentType: (
+    contentType: Omit<ContentType, "created_at" | "updated_at"> & { created_at?: string; updated_at?: string },
+  ) =>
+    fetch("/api/content-types", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title }),
-    }).then(json<Post>),
-  updatePost: (id: number, patch: PostPatch) =>
-    fetch(`/api/posts/${id}`, {
+      body: JSON.stringify({ contentType }),
+    }).then(json<ContentType>),
+  patchContentType: (
+    uid: string,
+    patch: Partial<Pick<ContentType, "info" | "options" | "attributes">> & {
+      applyDestructive?: boolean;
+    },
+  ) =>
+    fetch(`/api/content-types/${encodeURIComponent(uid)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
-    }).then(json<Post>),
-  deletePost: (id: number) =>
-    fetch(`/api/posts/${id}`, { method: "DELETE" }).then(json<{ ok: true }>),
+    }).then(json<ContentType>),
+  deleteContentType: (uid: string) =>
+    fetch(`/api/content-types/${encodeURIComponent(uid)}`, { method: "DELETE" }).then(
+      json<{ ok: true }>,
+    ),
+
+  // ── Entries (any library) ───────────────────────────────────────
+  listEntries: (pluralName: string) =>
+    fetch(`/api/entries/${encodeURIComponent(pluralName)}`).then(json<Entry[]>),
+  getEntry: (pluralName: string, id: number | string) =>
+    fetch(`/api/entries/${encodeURIComponent(pluralName)}/${id}`).then(json<Entry>),
+  createEntry: (pluralName: string, body: Record<string, unknown> = {}) =>
+    fetch(`/api/entries/${encodeURIComponent(pluralName)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(json<Entry>),
+  updateEntry: (pluralName: string, id: number | string, body: Record<string, unknown>) =>
+    fetch(`/api/entries/${encodeURIComponent(pluralName)}/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(json<Entry>),
+  deleteEntry: (pluralName: string, id: number | string) =>
+    fetch(`/api/entries/${encodeURIComponent(pluralName)}/${id}`, { method: "DELETE" }).then(
+      json<{ ok: true }>,
+    ),
+
+  // ── Uploads ─────────────────────────────────────────────────────
   uploadImage: async (file: File) => {
     const fd = new FormData();
     fd.append("file", file);
