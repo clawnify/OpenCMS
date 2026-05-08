@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   ToggleLeft,
   CircleDot,
@@ -6,123 +7,254 @@ import {
   Link2,
   AlignLeft,
   Calendar,
+  Clock,
   FileText,
+  Hash,
+  Braces,
   Eye,
   EyeOff,
-  RotateCcw,
+  Trash2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import { useFieldConfig, type FieldDef, type FieldType } from "@/lib/fields";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  type Attribute,
+  type AttributeType,
+  type EnumerationAttribute,
+  isFieldLocked,
+} from "@/lib/content-types";
 
-export const TYPE_ICON: Record<FieldType, typeof Type> = {
-  boolean: ToggleLeft,
-  select: CircleDot,
-  image: ImageIcon,
-  text: Type,
-  slug: Link2,
-  longtext: AlignLeft,
-  date: Calendar,
+export const TYPE_ICON: Record<AttributeType, typeof Type> = {
+  string: Type,
+  text: AlignLeft,
   richtext: FileText,
+  integer: Hash,
+  decimal: Hash,
+  boolean: ToggleLeft,
+  date: Calendar,
+  datetime: Clock,
+  media: ImageIcon,
+  enumeration: CircleDot,
+  json: Braces,
+  uid: Link2,
 };
 
-export const TYPE_LABEL: Record<FieldType, string> = {
-  boolean: "Boolean",
-  select: "Select",
-  image: "Image",
-  text: "Text",
-  slug: "Slug",
-  longtext: "Long text",
-  date: "Date",
+export const TYPE_LABEL: Record<AttributeType, string> = {
+  string: "Text",
+  text: "Long text",
   richtext: "Rich text",
+  integer: "Integer",
+  decimal: "Decimal",
+  boolean: "Boolean",
+  date: "Date",
+  datetime: "Date & time",
+  media: "Image",
+  enumeration: "Enumeration",
+  json: "JSON",
+  uid: "Slug",
 };
 
-export function FieldEditor({
-  field,
-  variant = "popover",
-}: {
-  field: FieldDef;
-  variant?: "popover" | "dialog";
-}) {
-  const { config, update, reset } = useFieldConfig();
-  const Icon = TYPE_ICON[field.type];
-  const current = config[field.key] ?? {};
-  const label = current.label ?? field.defaultLabel;
-  const hidden = !!current.hidden;
-  const isOverridden = !!current.label || !!current.hidden;
+export const ALL_TYPES: AttributeType[] = [
+  "string",
+  "text",
+  "richtext",
+  "integer",
+  "decimal",
+  "boolean",
+  "date",
+  "datetime",
+  "media",
+  "enumeration",
+  "json",
+  "uid",
+];
+
+interface FieldEditorProps {
+  fieldKey: string;
+  attribute: Attribute;
+  onCommit: (next: Attribute) => Promise<void> | void;
+  onRemove?: () => Promise<void> | void;
+}
+
+export function FieldEditor({ fieldKey, attribute, onCommit, onRemove }: FieldEditorProps) {
+  const [draft, setDraft] = useState<Attribute>(attribute);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => setDraft(attribute), [attribute]);
+
+  const locked = isFieldLocked(attribute);
+  const typeChanged = draft.type !== attribute.type;
+  const dirty = JSON.stringify(draft) !== JSON.stringify(attribute);
+
+  function patchDraft(p: Partial<Attribute>) {
+    setDraft((d) => ({ ...d, ...p }) as Attribute);
+  }
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      await onCommit(draft);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="text-sm">
-      {variant === "popover" && (
-        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border">
-          <Icon className="size-4 text-muted-foreground" />
-          <span className="font-medium">{field.defaultLabel}</span>
-          <span className="ml-auto text-xs text-muted-foreground">
-            {TYPE_LABEL[field.type]}
-          </span>
-        </div>
-      )}
-
       <div className="px-3 py-3 space-y-3">
-        <div className="space-y-1.5">
-          <Label htmlFor={`label-${field.key}`} className="text-xs text-muted-foreground font-normal">
-            Display label
-          </Label>
-          <Input
-            id={`label-${field.key}`}
-            value={label}
-            onChange={(e) => update(field.key, { label: e.target.value })}
-            className="h-8"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground font-normal">Field key</Label>
-          <Input value={field.key} readOnly className="h-8 font-mono text-xs bg-muted" />
-        </div>
-
-        <div className="flex items-center justify-between gap-3 pt-1">
-          <div className="flex items-center gap-2">
-            {hidden ? (
-              <EyeOff className="size-4 text-muted-foreground" />
-            ) : (
-              <Eye className="size-4 text-muted-foreground" />
-            )}
-            <Label htmlFor={`hide-${field.key}`} className="text-sm font-normal">
-              Show in table
-            </Label>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground font-normal">Display label</Label>
+            <Input
+              value={draft.displayName ?? ""}
+              placeholder={fieldKey}
+              onChange={(e) => patchDraft({ displayName: e.target.value })}
+              className="h-8"
+            />
           </div>
-          <Switch
-            id={`hide-${field.key}`}
-            checked={!hidden}
-            disabled={field.required}
-            onCheckedChange={(v) => update(field.key, { hidden: !v })}
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground font-normal">Field key</Label>
+            <Input value={fieldKey} readOnly className="h-8 font-mono text-xs bg-muted" />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground font-normal">Type</Label>
+          <Select
+            value={draft.type}
+            disabled={locked}
+            onValueChange={(t: AttributeType) => patchDraft({ type: t })}
+          >
+            <SelectTrigger className="h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ALL_TYPES.map((t) => {
+                const Icon = TYPE_ICON[t];
+                return (
+                  <SelectItem key={t} value={t}>
+                    <span className="inline-flex items-center gap-2">
+                      <Icon className="size-3.5 opacity-60" />
+                      {TYPE_LABEL[t]}
+                    </span>
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+          {locked && (
+            <p className="text-xs text-muted-foreground">
+              Built-in field — type can't be changed.
+            </p>
+          )}
+        </div>
+
+        {draft.type === "enumeration" && (
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground font-normal">
+              Enum values (one per line)
+            </Label>
+            <textarea
+              value={((draft as EnumerationAttribute).enum ?? []).join("\n")}
+              onChange={(e) =>
+                patchDraft({
+                  enum: e.target.value
+                    .split("\n")
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                } as Partial<EnumerationAttribute>)
+              }
+              className="w-full min-h-[80px] rounded-md border border-input bg-transparent px-2 py-1.5 text-sm font-mono"
+              placeholder="draft&#10;live"
+            />
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3 pt-1">
+          <Toggle
+            label="Required"
+            checked={!!draft.required}
+            disabled={locked}
+            onChange={(v) => patchDraft({ required: v })}
+          />
+          <Toggle
+            label={draft.hidden ? "Hidden" : "Show in table"}
+            icon={draft.hidden ? EyeOff : Eye}
+            checked={!draft.hidden}
+            onChange={(v) => patchDraft({ hidden: !v })}
           />
         </div>
-        {field.required && (
-          <p className="text-xs text-muted-foreground -mt-2">
-            Required fields can't be hidden.
-          </p>
+
+        {typeChanged && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 text-amber-900 text-xs px-2.5 py-2">
+            Changing the type may discard existing values in this column. Saving will trigger
+            a destructive migration after confirmation.
+          </div>
+        )}
+
+        {error && (
+          <div className="text-xs text-destructive bg-destructive/10 rounded px-2 py-1.5">
+            {error}
+          </div>
         )}
       </div>
 
       <div className="flex items-center justify-between border-t border-border px-3 py-2 bg-muted/40">
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={!isOverridden}
-          onClick={() => reset(field.key)}
-          className="h-7 text-xs gap-1.5"
-        >
-          <RotateCcw className="size-3" />
-          Reset
+        {locked || !onRemove ? (
+          <span className="text-xs text-muted-foreground">{locked ? "Built-in" : ""}</span>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onRemove}
+            disabled={busy}
+            className="h-7 text-xs gap-1.5 text-destructive hover:text-destructive"
+          >
+            <Trash2 className="size-3" />
+            Delete field
+          </Button>
+        )}
+        <Button size="sm" onClick={save} disabled={busy || !dirty} className="h-7">
+          {busy ? "Saving…" : "Save"}
         </Button>
-        <span className="text-xs text-muted-foreground">
-          {isOverridden ? "Customised" : "Default"}
-        </span>
       </div>
+    </div>
+  );
+}
+
+function Toggle({
+  label,
+  checked,
+  onChange,
+  disabled,
+  icon: Icon,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+  icon?: typeof Eye;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <Label className="text-sm font-normal flex items-center gap-1.5">
+        {Icon && <Icon className="size-4 text-muted-foreground" />}
+        {label}
+      </Label>
+      <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} />
     </div>
   );
 }

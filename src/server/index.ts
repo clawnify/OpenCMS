@@ -1,7 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { initDB } from "./db";
 import { initUploads } from "./uploads";
-import { registerPostRoutes } from "./routes-posts";
 import { registerUploadRoutes } from "./routes-uploads";
 import { registerContentTypeRoutes } from "./routes-content-types";
 import { registerEntryRoutes } from "./routes-entries";
@@ -39,7 +38,6 @@ app.onError((err, c) => {
 
 registerContentTypeRoutes(app);
 registerEntryRoutes(app);
-registerPostRoutes(app);
 registerUploadRoutes(app);
 
 app.doc("/api/openapi.json", {
