@@ -1,6 +1,6 @@
 # Open CMS
 
-A headless content-management studio in the spirit of Strapi / Sanity / Contentful, built for **Clawnify**. **React + Tailwind CSS + Hono + D1 + R2**, deployed to Cloudflare Workers via [Clawnify](https://clawnify.com).
+A headless content-management studio built for **Clawnify**. **React + Tailwind CSS + Hono + D1 + R2**, deployed to Cloudflare Workers via [Clawnify](https://clawnify.com).
 
 Auth, plugins, and integrations are handled by Clawnify — this template focuses on a clean editing UI and a typed REST API that Clawnify agents can consume from day one.
 
