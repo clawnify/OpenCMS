@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Plus, Search, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Sidebar } from "./components/sidebar";
 import { PostsTable } from "./components/posts-table";
 import { PostEditor } from "./components/post-editor";
@@ -115,13 +115,19 @@ export function App() {
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           {active && (
-            <PostEditor
-              key={active.id}
-              post={active}
-              onChange={onPostChange}
-              onClose={() => navigate("/")}
-              onDelete={onDelete}
-            />
+            <>
+              <SheetTitle className="sr-only">Edit post: {active.title}</SheetTitle>
+              <SheetDescription className="sr-only">
+                Edit fields and rich-text content for the selected post.
+              </SheetDescription>
+              <PostEditor
+                key={active.id}
+                post={active}
+                onChange={onPostChange}
+                onClose={() => navigate("/")}
+                onDelete={onDelete}
+              />
+            </>
           )}
         </SheetContent>
       </Sheet>
