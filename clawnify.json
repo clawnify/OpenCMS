@@ -1,0 +1,11 @@
+{
+  "$schema": "https://app.clawnify.com/schema/v1/clawnify.json",
+  "version": 1,
+  "name": "Open CMS",
+  "description": "",
+  "app": {
+    "framework": "react+hono",
+    "database": true,
+    "storage": true
+  }
+}

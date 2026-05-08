@@ -1,0 +1,10 @@
+node_modules
+dist
+.wrangler
+.clawnify
+.env*
+!.env.example
+.dev.vars
+data.db
+data.db-wal
+data.db-shm

@@ -1,0 +1,51 @@
+{
+  "name": "open-cms",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "clawnify dev",
+    "build": "vite build",
+    "deploy": "clawnify deploy"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.2.8",
+    "@hono/zod-openapi": "^1.3.0",
+    "@tanstack/react-table": "^8.21.3",
+    "@tiptap/extension-image": "^3.23.1",
+    "@tiptap/extension-link": "^3.23.1",
+    "@tiptap/extension-placeholder": "^3.23.1",
+    "@tiptap/pm": "^3.23.1",
+    "@tiptap/react": "^3.23.1",
+    "@tiptap/starter-kit": "^3.23.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "hono": "^4.0.0",
+    "lucide-react": "^1.14.0",
+    "radix-ui": "^1.4.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "shadcn": "^4.7.0",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.0.0",
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "clawnify": "^0.1.13",
+    "tailwindcss": "^4.0.0",
+    "vite": "^6.0.0",
+    "wrangler": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
