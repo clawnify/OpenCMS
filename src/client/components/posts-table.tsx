@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-table";
 import { ImageIcon } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { POSTS_FIELDS, resolveLabel, isHidden, useFieldConfig } from "@/lib/fields";
 import {
   Select,
   SelectContent,
@@ -37,6 +38,16 @@ interface PostsTableProps {
 
 export function PostsTable({ posts, onOpen, onPatch, selectedId }: PostsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
+  const { config } = useFieldConfig();
+
+  const labelOf = (key: string) => {
+    const def = POSTS_FIELDS.find((f) => f.key === key);
+    return def ? resolveLabel(def, config) : key;
+  };
+  const visible = (key: string) => {
+    const def = POSTS_FIELDS.find((f) => f.key === key);
+    return def ? !isHidden(def, config) : true;
+  };
 
   const columns = useMemo<ColumnDef<Post>[]>(
     () => [
@@ -66,7 +77,7 @@ export function PostsTable({ posts, onOpen, onPatch, selectedId }: PostsTablePro
       },
       {
         accessorKey: "featured",
-        header: "Featured",
+        header: labelOf("featured"),
         cell: ({ row }) => (
           <CellStop>
             <InlineSelect
@@ -83,7 +94,7 @@ export function PostsTable({ posts, onOpen, onPatch, selectedId }: PostsTablePro
       },
       {
         accessorKey: "status",
-        header: "Status",
+        header: labelOf("status"),
         cell: ({ row }) => (
           <CellStop>
             <Select
@@ -108,7 +119,7 @@ export function PostsTable({ posts, onOpen, onPatch, selectedId }: PostsTablePro
       },
       {
         accessorKey: "image_url",
-        header: "Image",
+        header: labelOf("image_url"),
         cell: ({ row }) => (
           <CellStop>
             <InlineImage
@@ -121,7 +132,7 @@ export function PostsTable({ posts, onOpen, onPatch, selectedId }: PostsTablePro
       },
       {
         accessorKey: "title",
-        header: "Title",
+        header: labelOf("title"),
         cell: ({ row }) => (
           <CellStop>
             <InlineText
@@ -135,7 +146,7 @@ export function PostsTable({ posts, onOpen, onPatch, selectedId }: PostsTablePro
       },
       {
         accessorKey: "slug",
-        header: "Slug",
+        header: labelOf("slug"),
         cell: ({ row }) => (
           <CellStop>
             <InlineText
@@ -149,7 +160,7 @@ export function PostsTable({ posts, onOpen, onPatch, selectedId }: PostsTablePro
       },
       {
         accessorKey: "description",
-        header: "Description",
+        header: labelOf("description"),
         cell: ({ row }) => (
           <CellStop>
             <InlineText
@@ -164,7 +175,7 @@ export function PostsTable({ posts, onOpen, onPatch, selectedId }: PostsTablePro
       },
       {
         accessorKey: "category",
-        header: "Category",
+        header: labelOf("category"),
         cell: ({ row }) => (
           <CellStop>
             <InlineText
@@ -179,7 +190,7 @@ export function PostsTable({ posts, onOpen, onPatch, selectedId }: PostsTablePro
       },
       {
         accessorKey: "post_date",
-        header: "Date",
+        header: labelOf("post_date"),
         cell: ({ row }) => (
           <CellStop>
             <input
@@ -194,7 +205,7 @@ export function PostsTable({ posts, onOpen, onPatch, selectedId }: PostsTablePro
       },
       {
         accessorKey: "author",
-        header: "Author",
+        header: labelOf("author"),
         cell: ({ row }) => (
           <CellStop>
             <InlineText
@@ -209,7 +220,7 @@ export function PostsTable({ posts, onOpen, onPatch, selectedId }: PostsTablePro
       },
       {
         accessorKey: "content",
-        header: "Content",
+        header: labelOf("content"),
         cell: ({ row }) => (
           <button
             onClick={() => onOpen(row.original.id)}
@@ -224,31 +235,48 @@ export function PostsTable({ posts, onOpen, onPatch, selectedId }: PostsTablePro
         size: 320,
       },
     ],
-    [onOpen, onPatch],
+    [onOpen, onPatch, config],
+  );
+
+  const visibleColumns = useMemo(
+    () => columns.filter((c) => {
+      const key = "accessorKey" in c ? (c.accessorKey as string) : c.id;
+      if (!key || key === "select") return true;
+      return visible(key);
+    }),
+    [columns, config],
   );
 
   const table = useReactTable({
     data: posts,
-    columns,
+    columns: visibleColumns,
     state: { sorting },
     onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     enableRowSelection: true,
     getRowId: (row) => String(row.id),
+    defaultColumn: {
+      minSize: 60,
+      size: 160,
+      maxSize: 400,
+    },
   });
 
   return (
     <div className="flex-1 overflow-auto">
-      <Table className="border-collapse [&_th]:border-r [&_th]:border-border [&_td]:border-r [&_td]:border-border [&_th:last-child]:border-r-0 [&_td:last-child]:border-r-0">
+      <Table
+        className="border-collapse [&_th]:border-r [&_th]:border-border [&_td]:border-r [&_td]:border-border [&_th:last-child]:border-r-0 [&_td:last-child]:border-r-0"
+        style={{ tableLayout: "fixed", width: table.getTotalSize() }}
+      >
         <TableHeader>
           {table.getHeaderGroups().map((hg) => (
             <TableRow key={hg.id} className="hover:bg-transparent">
               {hg.headers.map((h) => (
                 <TableHead
                   key={h.id}
-                  style={{ width: h.getSize() ? `${h.getSize()}px` : undefined }}
-                  className="text-xs uppercase tracking-wide text-muted-foreground font-medium"
+                  style={{ width: `${h.getSize()}px`, maxWidth: `${h.column.columnDef.maxSize ?? h.getSize()}px` }}
+                  className="text-xs uppercase tracking-wide text-muted-foreground font-medium overflow-hidden text-ellipsis"
                 >
                   {h.isPlaceholder
                     ? null
@@ -261,7 +289,7 @@ export function PostsTable({ posts, onOpen, onPatch, selectedId }: PostsTablePro
         <TableBody>
           {table.getRowModel().rows.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={columns.length} className="h-32 text-center text-muted-foreground">
+              <TableCell colSpan={visibleColumns.length} className="h-32 text-center text-muted-foreground">
                 No posts yet. Click + to create one.
               </TableCell>
             </TableRow>
@@ -276,7 +304,11 @@ export function PostsTable({ posts, onOpen, onPatch, selectedId }: PostsTablePro
                 )}
               >
                 {row.getVisibleCells().map((cell) => (
-                  <TableCell key={cell.id} className="py-2">
+                  <TableCell
+                    key={cell.id}
+                    style={{ width: `${cell.column.getSize()}px`, maxWidth: `${cell.column.columnDef.maxSize ?? cell.column.getSize()}px` }}
+                    className="py-2 overflow-hidden"
+                  >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </TableCell>
                 ))}
