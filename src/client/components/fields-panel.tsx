@@ -77,6 +77,7 @@ function FieldRow({
         <FieldEditor
           fieldKey={fieldKey}
           attribute={attribute}
+          siblingFieldKeys={Object.keys(contentType.attributes).filter((k) => k !== fieldKey)}
           onCommit={async (next) => {
             const isTypeChange = next.type !== attribute.type;
             const merged = { ...contentType.attributes, [fieldKey]: next };

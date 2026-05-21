@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { X, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { X, Trash2, Sparkles, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -7,6 +7,7 @@ import { DynamicField } from "./dynamic-field";
 import { api } from "@/lib/api";
 import {
   fieldLabel,
+  type Attribute,
   type ContentType,
   type Entry,
 } from "@/lib/content-types";
@@ -31,8 +32,16 @@ export function EntryEditor({
 }: EntryEditorProps) {
   const [local, setLocal] = useState<Entry>(entry);
   const [savingState, setSavingState] = useState<"saved" | "saving" | "error">("saved");
+  const [generating, setGenerating] = useState<Record<string, boolean>>({});
+  // Track which AI fields we've already auto-triggered in this session so a
+  // single failure doesn't loop, and a successful fill doesn't re-trigger on
+  // remount-induced local changes.
+  const autoAttemptedRef = useRef<Set<string>>(new Set());
 
-  useEffect(() => setLocal(entry), [entry.id]);
+  useEffect(() => {
+    setLocal(entry);
+    autoAttemptedRef.current = new Set();
+  }, [entry.id]);
 
   function patch(p: Record<string, unknown>) {
     const next = { ...local, ...p };
@@ -50,6 +59,43 @@ export function EntryEditor({
       () => setSavingState("error"),
     );
   }
+
+  async function runAIGeneration(fieldKey: string) {
+    setGenerating((g) => ({ ...g, [fieldKey]: true }));
+    try {
+      const { value } = await api.aiGenerateField(
+        contentType.info.pluralName,
+        Number(entry.id),
+        fieldKey,
+      );
+      patch({ [fieldKey]: value });
+    } catch (e) {
+      console.error("AI generation failed", fieldKey, e);
+    } finally {
+      setGenerating((g) => {
+        const next = { ...g };
+        delete next[fieldKey];
+        return next;
+      });
+    }
+  }
+
+  // Auto-fill: after the local state settles, fire any AI-enabled empty cells
+  // whose dependency set is fully populated. One attempt per (session, field).
+  useEffect(() => {
+    const t = setTimeout(() => {
+      for (const [key, attr] of Object.entries(contentType.attributes)) {
+        if (!shouldAutoTrigger(key, attr, local, contentType.attributes, autoAttemptedRef.current)) {
+          continue;
+        }
+        autoAttemptedRef.current.add(key);
+        runAIGeneration(key);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+    // We intentionally watch local — the trigger re-evaluates on every edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [local]);
 
   // Find the publish action — only meaningful for an enumeration named "status"
   // with draft/live values, matching the Posts seed convention.
@@ -71,14 +117,11 @@ export function EntryEditor({
     onChange(saved);
   }
 
-  // Build a contextValues map (used by uid field for slug preview etc.)
   const contextValues: Record<string, unknown> = local;
 
-  // Render fields in a sensible order: non-richtext first, then richtext / json
-  // (which take a lot of vertical space) at the bottom.
   const entries = Object.entries(contentType.attributes);
-  const top = entries.filter(([, a]) => a.type !== "richtext" && a.type !== "json");
-  const bottom = entries.filter(([, a]) => a.type === "richtext" || a.type === "json");
+  const top = entries.filter(([, a]) => a.type !== "richtext" && a.type !== "json" && a.type !== "html" && a.type !== "image");
+  const bottom = entries.filter(([, a]) => a.type === "richtext" || a.type === "json" || a.type === "html" || a.type === "image");
 
   return (
     <div className="flex h-full flex-col bg-background border-l border-border">
@@ -119,7 +162,14 @@ export function EntryEditor({
       <div className="flex-1 overflow-y-auto px-6 py-5">
         <div className="space-y-4 max-w-2xl">
           {top.map(([key, attr]) => (
-            <FieldRow key={key} label={fieldLabel(key, attr)} required={attr.required}>
+            <FieldRow
+              key={key}
+              label={fieldLabel(key, attr)}
+              required={attr.required}
+              aiEnabled={!!attr.aiConfig?.enabled}
+              generating={!!generating[key]}
+              onRegenerate={() => runAIGeneration(key)}
+            >
               <DynamicField
                 value={local[key]}
                 attr={attr}
@@ -140,6 +190,9 @@ export function EntryEditor({
                   label={fieldLabel(key, attr)}
                   required={attr.required}
                   align="top"
+                  aiEnabled={!!attr.aiConfig?.enabled}
+                  generating={!!generating[key]}
+                  onRegenerate={() => runAIGeneration(key)}
                 >
                   <DynamicField
                     value={local[key]}
@@ -164,11 +217,17 @@ function FieldRow({
   children,
   required,
   align = "center",
+  aiEnabled,
+  generating,
+  onRegenerate,
 }: {
   label: string;
   children: React.ReactNode;
   required?: boolean;
   align?: "center" | "top";
+  aiEnabled?: boolean;
+  generating?: boolean;
+  onRegenerate?: () => void;
 }) {
   return (
     <div
@@ -177,13 +236,77 @@ function FieldRow({
         align === "center" ? "items-center" : "items-start pt-1",
       )}
     >
-      <Label className="text-sm text-muted-foreground font-normal">
+      <Label className="text-sm text-muted-foreground font-normal flex items-center gap-1.5">
         {label}
         {required && <span className="text-destructive ml-0.5">*</span>}
+        {aiEnabled && onRegenerate && (
+          <button
+            onClick={onRegenerate}
+            disabled={generating}
+            className="ml-auto inline-flex items-center justify-center size-5 rounded hover:bg-accent text-muted-foreground hover:text-foreground disabled:opacity-50"
+            title={generating ? "Generating…" : "Regenerate with AI"}
+            type="button"
+          >
+            {generating ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="size-3.5" />
+            )}
+          </button>
+        )}
       </Label>
-      <div className="min-w-0">{children}</div>
+      <div className="min-w-0">
+        {generating ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground italic">
+            <Loader2 className="size-3 animate-spin" />
+            Generating with AI…
+          </div>
+        ) : (
+          children
+        )}
+      </div>
     </div>
   );
+}
+
+// ── Auto-trigger evaluation ────────────────────────────────────────
+
+function shouldAutoTrigger(
+  key: string,
+  attr: Attribute,
+  local: Entry,
+  attributes: Record<string, Attribute>,
+  attempted: Set<string>,
+): boolean {
+  if (!attr.aiConfig?.enabled) return false;
+  if (attr.aiConfig.autoFillOnEmpty === false) return false;
+  if (attempted.has(key)) return false;
+  if (isNonEmpty(local[key])) return false;
+
+  const refs = extractRefs(attr.aiConfig.systemPrompt);
+  const deps =
+    refs.length > 0
+      ? refs
+      : Object.entries(attributes)
+          .filter(([k, a]) => k !== key && !a.aiConfig?.enabled)
+          .map(([k]) => k);
+
+  if (deps.length === 0) return true;
+  return deps.every((d) => isNonEmpty(local[d]));
+}
+
+function isNonEmpty(v: unknown): boolean {
+  if (v === null || v === undefined) return false;
+  if (typeof v === "string") return v.trim() !== "";
+  return true;
+}
+
+function extractRefs(template: string): string[] {
+  const seen = new Set<string>();
+  for (const m of template.matchAll(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g)) {
+    seen.add(m[1]);
+  }
+  return Array.from(seen);
 }
 
 // Debounced per-(plural, id) save queue.

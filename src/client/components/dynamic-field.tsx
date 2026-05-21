@@ -1,5 +1,5 @@
-import { useRef } from "react";
-import { ImagePlus } from "lucide-react";
+import { useRef, useState } from "react";
+import { ImagePlus, Code, Eye } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -32,8 +32,10 @@ export function DynamicField(props: FieldProps) {
       return <BooleanField {...props} />;
     case "enumeration":
       return <EnumerationField {...props} attr={attr as EnumerationAttribute} />;
-    case "media":
-      return <MediaField {...props} />;
+    case "image":
+      return <ImageField {...props} />;
+    case "html":
+      return <HtmlField {...props} />;
     case "richtext":
       return <RichTextField {...props} />;
     case "json":
@@ -148,7 +150,7 @@ function EnumerationField({
   );
 }
 
-function MediaField({ value, onChange }: FieldProps) {
+function ImageField({ value, onChange }: FieldProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const url = typeof value === "string" ? value : null;
 
@@ -175,12 +177,12 @@ function MediaField({ value, onChange }: FieldProps) {
           <img
             src={url}
             alt=""
-            className="h-16 rounded-md object-cover cursor-pointer"
+            className="h-32 rounded-md object-cover cursor-pointer"
             onClick={() => fileRef.current?.click()}
           />
           <button
             onClick={() => onChange(null)}
-            className="absolute -top-1 -right-1 size-4 rounded-full bg-foreground text-background text-xs flex items-center justify-center opacity-0 group-hover:opacity-100"
+            className="absolute -top-1 -right-1 size-5 rounded-full bg-foreground text-background text-xs flex items-center justify-center opacity-0 group-hover:opacity-100"
           >
             ×
           </button>
@@ -197,6 +199,66 @@ function MediaField({ value, onChange }: FieldProps) {
         </Button>
       )}
     </>
+  );
+}
+
+function HtmlField({ value, onChange }: FieldProps) {
+  const [tab, setTab] = useState<"code" | "preview">("code");
+  const html = typeof value === "string" ? value : "";
+  return (
+    <div className="w-full rounded-md border border-input overflow-hidden">
+      <div className="flex items-center border-b border-input bg-muted/40 text-xs">
+        <TabButton active={tab === "code"} onClick={() => setTab("code")} icon={<Code className="size-3.5" />}>
+          Code
+        </TabButton>
+        <TabButton active={tab === "preview"} onClick={() => setTab("preview")} icon={<Eye className="size-3.5" />}>
+          Preview
+        </TabButton>
+      </div>
+      {tab === "code" ? (
+        <textarea
+          value={html}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="<div>Your HTML here…</div>"
+          className="w-full min-h-[200px] bg-background px-2 py-1.5 text-sm font-mono outline-none"
+        />
+      ) : (
+        <iframe
+          srcDoc={html}
+          sandbox=""
+          className="w-full min-h-[200px] bg-white"
+          title="HTML preview"
+        />
+      )}
+    </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  icon,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      type="button"
+      className={cn(
+        "inline-flex items-center gap-1 px-2.5 py-1.5 border-b-2 -mb-px",
+        active
+          ? "border-foreground text-foreground"
+          : "border-transparent text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {icon}
+      {children}
+    </button>
   );
 }
 

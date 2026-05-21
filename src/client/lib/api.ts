@@ -72,4 +72,12 @@ export const api = {
     const res = await fetch("/api/uploads", { method: "POST", body: fd });
     return json<{ url: string; filename: string }>(res);
   },
+
+  // ── AI ──────────────────────────────────────────────────────────
+  aiGenerateField: (pluralName: string, entryId: number | string, fieldKey: string) =>
+    fetch("/api/ai/generate-field", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pluralName, entryId, fieldKey }),
+    }).then(json<{ value: unknown }>),
 };

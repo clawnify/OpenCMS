@@ -11,10 +11,20 @@ export type AttributeType =
   | "boolean"
   | "date"
   | "datetime"
-  | "media"
+  | "image"
+  | "html"
   | "enumeration"
   | "json"
   | "uid";
+
+/** Per-attribute AI auto-fill config. Lives inside the attribute JSON blob. */
+export interface AIConfig {
+  enabled: boolean;
+  systemPrompt: string;
+  /** Default true. */
+  autoFillOnEmpty?: boolean;
+  model?: string;
+}
 
 export interface BaseAttribute {
   type: AttributeType;
@@ -27,6 +37,7 @@ export interface BaseAttribute {
   displayName?: string;
   /** Hidden from the table view. */
   hidden?: boolean;
+  aiConfig?: AIConfig;
 }
 
 export interface EnumerationAttribute extends BaseAttribute {
@@ -34,10 +45,13 @@ export interface EnumerationAttribute extends BaseAttribute {
   enum: string[];
 }
 
-export interface MediaAttribute extends BaseAttribute {
-  type: "media";
-  multiple?: boolean;
-  allowedTypes?: Array<"images" | "videos" | "files" | "audios">;
+export interface ImageAttribute extends BaseAttribute {
+  type: "image";
+  aspectRatio?: "1:1" | "16:9" | "9:16" | "4:3" | "3:4";
+}
+
+export interface HtmlAttribute extends BaseAttribute {
+  type: "html";
 }
 
 export interface UidAttribute extends BaseAttribute {
@@ -45,7 +59,12 @@ export interface UidAttribute extends BaseAttribute {
   targetField?: string;
 }
 
-export type Attribute = BaseAttribute | EnumerationAttribute | MediaAttribute | UidAttribute;
+export type Attribute =
+  | BaseAttribute
+  | EnumerationAttribute
+  | ImageAttribute
+  | HtmlAttribute
+  | UidAttribute;
 
 export interface ContentTypeInfo {
   singularName: string;

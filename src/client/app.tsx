@@ -129,6 +129,7 @@ export function App() {
             entries={entries}
             onOpen={(id) => navigate(`/${activeCT.info.pluralName}/${id}`)}
             onPatch={patchEntry}
+            onContentTypeChange={refreshContentTypes}
             selectedId={selectedId}
           />
         ) : (

@@ -9,7 +9,7 @@ import { get, query, run } from "./db";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
-/** The 12 base attribute types we support. */
+/** The base attribute types we support. */
 export type AttributeType =
   | "string"
   | "text"
@@ -19,10 +19,25 @@ export type AttributeType =
   | "boolean"
   | "date"
   | "datetime"
-  | "media"
+  | "image"
+  | "html"
   | "enumeration"
   | "json"
   | "uid";
+
+/** Per-attribute AI auto-fill config. Lives inside the attribute JSON blob. */
+export interface AIConfig {
+  enabled: boolean;
+  /**
+   * Prompt sent as the system message. Supports `{{fieldKey}}` interpolation;
+   * any keys referenced narrow the dependency set used by the auto-trigger.
+   */
+  systemPrompt: string;
+  /** Default true. When true, auto-fire once the dependency set is filled. */
+  autoFillOnEmpty?: boolean;
+  /** Override the default OpenRouter model. */
+  model?: string;
+}
 
 export interface BaseAttribute {
   type: AttributeType;
@@ -31,6 +46,7 @@ export interface BaseAttribute {
   default?: unknown;
   /** Locked = built-in, can be renamed/hidden but not deleted/type-changed. */
   configurable?: boolean;
+  aiConfig?: AIConfig;
 }
 
 export interface StringAttribute extends BaseAttribute {
@@ -58,10 +74,14 @@ export interface EnumerationAttribute extends BaseAttribute {
   enumName?: string;
 }
 
-export interface MediaAttribute extends BaseAttribute {
-  type: "media";
-  multiple?: boolean;
-  allowedTypes?: Array<"images" | "videos" | "files" | "audios">;
+export interface ImageAttribute extends BaseAttribute {
+  type: "image";
+  /** Hint for AI image generation; ignored otherwise. */
+  aspectRatio?: "1:1" | "16:9" | "9:16" | "4:3" | "3:4";
+}
+
+export interface HtmlAttribute extends BaseAttribute {
+  type: "html";
 }
 
 export interface UidAttribute extends BaseAttribute {
@@ -74,7 +94,8 @@ export type Attribute =
   | TextAttribute
   | NumberAttribute
   | EnumerationAttribute
-  | MediaAttribute
+  | ImageAttribute
+  | HtmlAttribute
   | UidAttribute
   | (BaseAttribute & { type: "boolean" | "date" | "datetime" | "json" });
 
@@ -231,7 +252,7 @@ export const POSTS_SEED: Omit<ContentType, "created_at" | "updated_at"> = {
     },
     description: { type: "text" },
     content: { type: "richtext", default: '{"type":"doc","content":[]}' },
-    image_url: { type: "media", allowedTypes: ["images"] },
+    image_url: { type: "image" },
     featured: { type: "boolean", default: false },
     category: { type: "string" },
     author: { type: "string" },
@@ -242,4 +263,37 @@ export const POSTS_SEED: Omit<ContentType, "created_at" | "updated_at"> = {
 export async function seedBuiltInsIfMissing() {
   const posts = await getContentType(POSTS_UID);
   if (!posts) await upsertContentType(POSTS_SEED);
+}
+
+/**
+ * One-shot upgrade for DBs created before the image/html field-type split:
+ * rewrite any `media` attributes to `image` (single only). The SQL column
+ * type is unchanged (both are TEXT), so this is a JSON-blob rewrite only.
+ */
+export async function migrateMediaToImage() {
+  const cts = await listContentTypes();
+  for (const ct of cts) {
+    let dirty = false;
+    const next: Record<string, Attribute> = {};
+    for (const [k, attr] of Object.entries(ct.attributes)) {
+      // Older shape may still carry { type: "media", allowedTypes, multiple }
+      const t = (attr as { type: string }).type;
+      if (t === "media") {
+        next[k] = { type: "image", configurable: attr.configurable } as ImageAttribute;
+        dirty = true;
+      } else {
+        next[k] = attr;
+      }
+    }
+    if (dirty) {
+      await upsertContentType({
+        uid: ct.uid,
+        kind: ct.kind,
+        collectionName: ct.collectionName,
+        info: ct.info,
+        options: ct.options,
+        attributes: next,
+      });
+    }
+  }
 }

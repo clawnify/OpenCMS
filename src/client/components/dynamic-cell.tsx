@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ImageIcon } from "lucide-react";
+import { ImageIcon, Code as CodeIcon } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/select";
 import { StatusPill } from "./status-pill";
 import { api } from "@/lib/api";
-import type { Attribute, EnumerationAttribute, MediaAttribute } from "@/lib/content-types";
+import type { Attribute, EnumerationAttribute } from "@/lib/content-types";
 import { cn } from "@/lib/utils";
 
 interface CellProps {
@@ -30,8 +30,10 @@ export function DynamicCell(props: CellProps) {
       return <BooleanCell {...props} />;
     case "enumeration":
       return <EnumerationCell {...props} attr={attr as EnumerationAttribute} />;
-    case "media":
-      return <MediaCell {...props} attr={attr as MediaAttribute} />;
+    case "image":
+      return <ImageCell {...props} />;
+    case "html":
+      return <HtmlCell {...props} />;
     case "richtext":
       return <RichTextPreviewCell {...props} />;
     case "date":
@@ -160,7 +162,7 @@ function EnumerationCell({
   );
 }
 
-function MediaCell({ value, onCommit }: CellProps & { attr: MediaAttribute }) {
+function ImageCell({ value, onCommit }: CellProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const url = typeof value === "string" ? value : null;
@@ -210,6 +212,26 @@ function MediaCell({ value, onCommit }: CellProps & { attr: MediaAttribute }) {
         </button>
       )}
     </>
+  );
+}
+
+function HtmlCell({ value, onOpenSheet }: CellProps) {
+  const html = typeof value === "string" ? value.trim() : "";
+  return (
+    <button
+      onClick={onOpenSheet}
+      className="block w-full text-left text-xs font-mono text-muted-foreground truncate hover:text-foreground"
+      title="Open HTML editor"
+    >
+      {html ? (
+        <span className="inline-flex items-center gap-1">
+          <CodeIcon className="size-3 opacity-60" />
+          {html.replace(/\s+/g, " ").slice(0, 80)}
+        </span>
+      ) : (
+        <span className="italic">Click to edit HTML</span>
+      )}
+    </button>
   );
 }
 

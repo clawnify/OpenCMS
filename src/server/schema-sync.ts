@@ -34,7 +34,8 @@ export function sqliteAffinity(attr: Attribute): string {
     case "string":
     case "uid":
     case "enumeration":
-    case "media":
+    case "image":
+    case "html":
     case "date":
     case "datetime":
     default:
@@ -163,7 +164,8 @@ export const ATTRIBUTE_TYPES: AttributeType[] = [
   "boolean",
   "date",
   "datetime",
-  "media",
+  "image",
+  "html",
   "enumeration",
   "json",
   "uid",

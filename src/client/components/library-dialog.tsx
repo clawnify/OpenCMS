@@ -275,6 +275,7 @@ function FieldView({
       <FieldEditor
         fieldKey={fieldKey}
         attribute={attr}
+        siblingFieldKeys={Object.keys(contentType.attributes).filter((k) => k !== fieldKey)}
         onCommit={onCommit}
         onRemove={locked ? undefined : onRemove}
       />

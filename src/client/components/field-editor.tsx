@@ -11,6 +11,8 @@ import {
   FileText,
   Hash,
   Braces,
+  Code,
+  Sparkles,
   Eye,
   EyeOff,
   Trash2,
@@ -27,6 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  type AIConfig,
   type Attribute,
   type AttributeType,
   type EnumerationAttribute,
@@ -42,7 +45,8 @@ export const TYPE_ICON: Record<AttributeType, typeof Type> = {
   boolean: ToggleLeft,
   date: Calendar,
   datetime: Clock,
-  media: ImageIcon,
+  image: ImageIcon,
+  html: Code,
   enumeration: CircleDot,
   json: Braces,
   uid: Link2,
@@ -57,7 +61,8 @@ export const TYPE_LABEL: Record<AttributeType, string> = {
   boolean: "Boolean",
   date: "Date",
   datetime: "Date & time",
-  media: "Image",
+  image: "Image",
+  html: "HTML",
   enumeration: "Enumeration",
   json: "JSON",
   uid: "Slug",
@@ -72,7 +77,8 @@ export const ALL_TYPES: AttributeType[] = [
   "boolean",
   "date",
   "datetime",
-  "media",
+  "image",
+  "html",
   "enumeration",
   "json",
   "uid",
@@ -81,11 +87,19 @@ export const ALL_TYPES: AttributeType[] = [
 interface FieldEditorProps {
   fieldKey: string;
   attribute: Attribute;
+  /** Other field keys in the same library — surfaced as {{key}} chips users can insert into the AI prompt. */
+  siblingFieldKeys?: string[];
   onCommit: (next: Attribute) => Promise<void> | void;
   onRemove?: () => Promise<void> | void;
 }
 
-export function FieldEditor({ fieldKey, attribute, onCommit, onRemove }: FieldEditorProps) {
+export function FieldEditor({
+  fieldKey,
+  attribute,
+  siblingFieldKeys,
+  onCommit,
+  onRemove,
+}: FieldEditorProps) {
   const [draft, setDraft] = useState<Attribute>(attribute);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -198,6 +212,13 @@ export function FieldEditor({ fieldKey, attribute, onCommit, onRemove }: FieldEd
           />
         </div>
 
+        <AISection
+          fieldKey={fieldKey}
+          value={draft.aiConfig}
+          siblingFieldKeys={siblingFieldKeys ?? []}
+          onChange={(aiConfig) => patchDraft({ aiConfig } as Partial<Attribute>)}
+        />
+
         {typeChanged && (
           <div className="rounded-md border border-amber-300 bg-amber-50 text-amber-900 text-xs px-2.5 py-2">
             Changing the type may discard existing values in this column. Saving will trigger
@@ -255,6 +276,88 @@ function Toggle({
         {label}
       </Label>
       <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} />
+    </div>
+  );
+}
+
+function AISection({
+  fieldKey,
+  value,
+  siblingFieldKeys,
+  onChange,
+}: {
+  fieldKey: string;
+  value: AIConfig | undefined;
+  siblingFieldKeys: string[];
+  onChange: (next: AIConfig | undefined) => void;
+}) {
+  const enabled = !!value?.enabled;
+  const cfg: AIConfig = value ?? { enabled: false, systemPrompt: "", autoFillOnEmpty: true };
+
+  function patch(p: Partial<AIConfig>) {
+    onChange({ ...cfg, ...p });
+  }
+
+  function insertRef(key: string) {
+    patch({ systemPrompt: `${cfg.systemPrompt}{{${key}}}` });
+  }
+
+  return (
+    <div className="rounded-md border border-border bg-muted/30">
+      <div className="flex items-center justify-between px-3 py-2">
+        <Label className="text-sm font-normal flex items-center gap-1.5">
+          <Sparkles className="size-3.5 text-muted-foreground" />
+          Fill with AI
+        </Label>
+        <Switch
+          checked={enabled}
+          onCheckedChange={(v) =>
+            v
+              ? patch({ enabled: true })
+              : onChange(undefined)
+          }
+        />
+      </div>
+      {enabled && (
+        <div className="border-t border-border px-3 pt-2.5 pb-3 space-y-2">
+          <Label className="text-xs text-muted-foreground font-normal">
+            What to generate?
+          </Label>
+          <textarea
+            value={cfg.systemPrompt}
+            onChange={(e) => patch({ systemPrompt: e.target.value })}
+            placeholder={`Describe how to generate "${fieldKey}". Reference other fields with {{key}}.`}
+            className="w-full min-h-[80px] rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+          />
+          {siblingFieldKeys.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {siblingFieldKeys.map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => insertRef(k)}
+                  className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-background border border-input hover:border-foreground/40 hover:bg-accent"
+                  title={`Insert {{${k}}} into the prompt`}
+                >
+                  {`{{${k}}}`}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="pt-1">
+            <Toggle
+              label="Auto-fill when empty"
+              checked={cfg.autoFillOnEmpty !== false}
+              onChange={(v) => patch({ autoFillOnEmpty: v })}
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            Fires once when this cell is empty and every referenced field is filled.
+            If no <code className="font-mono">{`{{key}}`}</code> refs are used, waits for
+            every non-AI field to be filled.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
