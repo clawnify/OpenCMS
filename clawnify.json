@@ -10,5 +10,12 @@
   },
   "env": {
     "required": ["OPENROUTER_API_KEY"]
+  },
+  "api": {
+    "public_routes": [
+      { "path": "/api/entries/**", "methods": ["GET"] },
+      { "path": "/api/uploads/*", "methods": ["GET"] },
+      "/api/openapi.json"
+    ]
   }
 }
