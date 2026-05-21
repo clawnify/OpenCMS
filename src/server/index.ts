@@ -22,7 +22,7 @@ const app = new OpenAPIHono<Env>();
 let schemaApplied = false;
 
 app.use("*", async (c, next) => {
-  initDB(c.env.DB);
+  initDB(c.env);
   initUploads(c.env.UPLOADS);
   if (!schemaApplied) {
     await ensureContentTypesTable(c.env.DB);
