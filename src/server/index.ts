@@ -5,7 +5,6 @@ import { registerUploadRoutes } from "./routes-uploads";
 import { registerContentTypeRoutes } from "./routes-content-types";
 import { registerEntryRoutes } from "./routes-entries";
 import {
-  ensureContentTypesTable,
   listContentTypes,
   migrateMediaToImage,
   seedBuiltInsIfMissing,
@@ -25,11 +24,13 @@ app.use("*", async (c, next) => {
   initDB(c.env);
   initUploads(c.env.UPLOADS);
   if (!schemaApplied) {
-    await ensureContentTypesTable(c.env.DB);
+    // content_types itself is provisioned by src/server/schema.sql at
+    // deploy time. The per-collection tables get bootstrapped here
+    // because their definitions live in rows, not in the static schema.
     await migrateMediaToImage();
     await seedBuiltInsIfMissing();
     for (const ct of await listContentTypes()) {
-      await syncTableToSchema(c.env.DB, ct);
+      await syncTableToSchema(ct);
     }
     schemaApplied = true;
   }

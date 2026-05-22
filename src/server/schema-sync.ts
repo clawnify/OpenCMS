@@ -10,7 +10,7 @@
  */
 
 import type { Attribute, AttributeType, ContentType } from "./content-types";
-import { query } from "./db";
+import { query, run } from "./db";
 
 interface ColumnInfo {
   name: string;
@@ -76,10 +76,9 @@ export interface SchemaDiff {
 }
 
 export async function diffTableAgainstSchema(
-  db: D1Database,
   ct: ContentType,
 ): Promise<SchemaDiff> {
-  await ensureBaseTable(db, ct);
+  await ensureBaseTable(ct);
 
   const cols = await query<ColumnInfo>(`PRAGMA table_info(${quote(ct.collectionName)})`);
   const colByName = new Map(cols.map((c) => [c.name, c]));
@@ -122,29 +121,29 @@ export async function diffTableAgainstSchema(
  * are NOT applied here — call applyDestructive(...) explicitly after
  * a confirmation flow.
  */
-export async function syncTableToSchema(db: D1Database, ct: ContentType) {
-  await ensureBaseTable(db, ct);
-  const diff = await diffTableAgainstSchema(db, ct);
+export async function syncTableToSchema(ct: ContentType) {
+  await ensureBaseTable(ct);
+  const diff = await diffTableAgainstSchema(ct);
   for (const a of diff.add) {
-    await db.exec(a.sql.replace(/\n/g, " "));
+    await run(a.sql.replace(/\n/g, " "));
   }
 }
 
 /** Apply destructive ops — column drops. Caller is responsible for confirming. */
-export async function applyDestructive(db: D1Database, ct: ContentType) {
-  const diff = await diffTableAgainstSchema(db, ct);
+export async function applyDestructive(ct: ContentType) {
+  const diff = await diffTableAgainstSchema(ct);
   for (const d of diff.drop) {
-    await db.exec(d.sql.replace(/\n/g, " "));
+    await run(d.sql.replace(/\n/g, " "));
   }
 }
 
-async function ensureBaseTable(db: D1Database, ct: ContentType) {
-  await db.exec(
+async function ensureBaseTable(ct: ContentType) {
+  await run(
     `CREATE TABLE IF NOT EXISTS ${quote(ct.collectionName)} (` +
       "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
       "created_at TEXT NOT NULL DEFAULT (datetime('now')), " +
       "updated_at TEXT NOT NULL DEFAULT (datetime('now'))" +
-      ");",
+      ")",
   );
 }
 

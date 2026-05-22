@@ -133,22 +133,8 @@ interface ContentTypeRow {
   updated_at: string;
 }
 
-// ── Schema bootstrap ──────────────────────────────────────────────────
-
-export async function ensureContentTypesTable(db: D1Database) {
-  await db.exec(
-    "CREATE TABLE IF NOT EXISTS content_types (" +
-      "uid TEXT PRIMARY KEY, " +
-      "kind TEXT NOT NULL DEFAULT 'collectionType', " +
-      "collection_name TEXT NOT NULL UNIQUE, " +
-      "info TEXT NOT NULL, " +
-      "options TEXT NOT NULL DEFAULT '{}', " +
-      "attributes TEXT NOT NULL DEFAULT '{}', " +
-      "created_at TEXT NOT NULL DEFAULT (datetime('now')), " +
-      "updated_at TEXT NOT NULL DEFAULT (datetime('now'))" +
-      ");",
-  );
-}
+// The `content_types` table itself is provisioned by the repo-root
+// schema.sql at deploy time, so no runtime bootstrap is needed.
 
 // ── CRUD ──────────────────────────────────────────────────────────────
 

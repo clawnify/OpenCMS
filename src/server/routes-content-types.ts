@@ -115,7 +115,7 @@ export function registerContentTypeRoutes(app: OpenAPIHono<{ Bindings: Bindings 
       if (existing) return c.json({ error: `UID ${contentType.uid} already exists` }, 409);
       await upsertContentType(contentType as Omit<ContentType, "created_at" | "updated_at">);
       const saved = await getContentType(contentType.uid);
-      await syncTableToSchema(c.env.DB, saved!);
+      await syncTableToSchema(saved!);
       return c.json(saved!, 200);
     },
   );
@@ -146,8 +146,8 @@ export function registerContentTypeRoutes(app: OpenAPIHono<{ Bindings: Bindings 
         attributes: patch.attributes ?? existing.attributes,
       };
       await upsertContentType(next);
-      await syncTableToSchema(c.env.DB, next);
-      if (patch.applyDestructive) await applyDestructive(c.env.DB, next);
+      await syncTableToSchema(next);
+      if (patch.applyDestructive) await applyDestructive(next);
       return c.json((await getContentType(uid))!, 200);
     },
   );
