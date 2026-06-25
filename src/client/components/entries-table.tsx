@@ -296,7 +296,7 @@ export function EntriesTable({
       onBlur={() => setFocusedColumn(null)}
     >
       <Table
-        className="border-collapse [&_th]:border-r [&_th]:border-border [&_td]:border-r [&_td]:border-border [&_th:last-child]:border-r-0 [&_td:last-child]:border-r-0"
+        className="border-collapse [&_th]:border-r [&_th]:border-border [&_td]:border-r [&_td]:border-border [&_th:last-child]:border-r-0 [&_td:last-child]:border-r-0 [&_tbody_tr:last-child]:border-b [&_tbody_tr:last-child]:border-border"
         style={{ tableLayout: "fixed", width: table.getTotalSize() }}
       >
         <TableHeader>
