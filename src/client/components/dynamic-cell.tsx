@@ -1,12 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { ImageIcon, Code as CodeIcon } from "lucide-react";
+import { ImageIcon, Code as CodeIcon, Calendar as CalendarIcon } from "lucide-react";
+import { format } from "date-fns";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { StatusPill } from "./status-pill";
+import { Checkbox } from "@/components/ui/checkbox";
 import { api } from "@/lib/api";
 import type { Attribute, EnumerationAttribute } from "@/lib/content-types";
 import { cn, pillColor } from "@/lib/utils";
@@ -177,18 +185,11 @@ function NumberCell({ value, onCommit, fieldKey }: CellProps) {
 function BooleanCell({ value, onCommit }: CellProps) {
   const yes = !!value;
   return (
-    <Select
-      value={yes ? "yes" : "no"}
-      onValueChange={(v) => onCommit(v === "yes")}
-    >
-      <SelectTrigger className="h-7 w-auto border-0 bg-transparent p-0 shadow-none focus:ring-0 text-sm text-muted-foreground hover:text-foreground gap-1 [&>svg]:opacity-50">
-        <span>{yes ? "Yes" : "No"}</span>
-      </SelectTrigger>
-      <SelectContent align="start">
-        <SelectItem value="no">No</SelectItem>
-        <SelectItem value="yes">Yes</SelectItem>
-      </SelectContent>
-    </Select>
+    <Checkbox
+      checked={yes}
+      onCheckedChange={(v) => onCommit(v === true)}
+      aria-label="Toggle"
+    />
   );
 }
 
@@ -301,26 +302,83 @@ function HtmlCell({ value, onOpenSheet }: CellProps) {
   );
 }
 
-function DateCell({ value, onCommit }: CellProps) {
+/** Parse a "YYYY-MM-DD" string into a local Date (no timezone shift). */
+function parseDateOnly(s: unknown): Date | undefined {
+  if (typeof s !== "string" || !/^\d{4}-\d{2}-\d{2}/.test(s)) return undefined;
+  const [y, m, d] = s.slice(0, 10).split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function toDateOnly(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function DateCell({ value, onCommit, fieldKey }: CellProps) {
+  const date = parseDateOnly(value);
   return (
-    <input
-      type="date"
-      value={String(value ?? "")}
-      onChange={(e) => onCommit(e.target.value)}
-      className="bg-transparent text-sm tabular-nums text-muted-foreground focus:outline-none focus:text-foreground"
-    />
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          data-field={fieldKey}
+          className="flex items-center gap-1.5 text-sm tabular-nums text-muted-foreground hover:text-foreground focus:outline-none"
+        >
+          <CalendarIcon className="size-3.5 opacity-60" />
+          {date ? format(date, "MMM d, yyyy") : <span className="italic">Pick a date</span>}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-auto p-0">
+        <Calendar
+          mode="single"
+          selected={date}
+          onSelect={(d) => onCommit(d ? toDateOnly(d) : null)}
+        />
+      </PopoverContent>
+    </Popover>
   );
 }
 
-function DateTimeCell({ value, onCommit }: CellProps) {
-  const v = typeof value === "string" ? value.replace(" ", "T").slice(0, 16) : "";
+function DateTimeCell({ value, onCommit, fieldKey }: CellProps) {
+  const str = typeof value === "string" ? value : "";
+  const datePart = str.slice(0, 10);
+  const timePart = str.replace(" ", "T").slice(11, 16) || "00:00";
+  const date = parseDateOnly(datePart);
+
+  function commit(nextDate: Date | undefined, nextTime: string) {
+    const dPart = nextDate ? toDateOnly(nextDate) : datePart;
+    if (!dPart) return onCommit(null);
+    onCommit(`${dPart}T${nextTime || "00:00"}`);
+  }
+
   return (
-    <input
-      type="datetime-local"
-      value={v}
-      onChange={(e) => onCommit(e.target.value)}
-      className="bg-transparent text-sm tabular-nums text-muted-foreground focus:outline-none focus:text-foreground"
-    />
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          data-field={fieldKey}
+          className="flex items-center gap-1.5 text-sm tabular-nums text-muted-foreground hover:text-foreground focus:outline-none"
+        >
+          <CalendarIcon className="size-3.5 opacity-60" />
+          {date ? `${format(date, "MMM d, yyyy")} ${timePart}` : <span className="italic">Pick a date</span>}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-auto p-0">
+        <Calendar
+          mode="single"
+          selected={date}
+          onSelect={(d) => commit(d, timePart)}
+        />
+        <div className="border-t border-border p-2">
+          <input
+            type="time"
+            value={timePart}
+            onChange={(e) => commit(date, e.target.value)}
+            className="w-full rounded-sm border border-input bg-transparent px-2 py-1 text-sm tabular-nums focus:border-ring focus:outline-none"
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

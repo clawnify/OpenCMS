@@ -288,7 +288,7 @@ export function EntriesTable({
 
   return (
     <div
-      className="flex-1 overflow-auto"
+      className="flex-1 overflow-auto [&>[data-slot=table-container]]:overflow-x-visible"
       onFocus={(e) => {
         const f = (e.target as HTMLElement).getAttribute("data-field");
         if (f) setFocusedColumn(f);
@@ -296,7 +296,7 @@ export function EntriesTable({
       onBlur={() => setFocusedColumn(null)}
     >
       <Table
-        className="h-full border-collapse [&_th]:border-r [&_th]:border-border [&_td]:border-r [&_td]:border-border [&_th:last-child]:border-r-0 [&_td:last-child]:border-r-0"
+        className="border-collapse [&_th]:border-r [&_th]:border-border [&_td]:border-r [&_td]:border-border [&_th:last-child]:border-r-0 [&_td:last-child]:border-r-0"
         style={{ tableLayout: "fixed", width: table.getTotalSize() }}
       >
         <TableHeader>
@@ -330,39 +330,30 @@ export function EntriesTable({
               </TableCell>
             </TableRow>
           ) : (
-            <>
-              {table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  onClick={() => setActiveRow(row.original.id)}
-                  onDoubleClick={() => onOpen(row.original.id)}
-                  className={cn(
-                    "group",
-                    selectedId === row.original.id && "bg-accent/40",
-                  )}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell
-                      key={cell.id}
-                      style={{
-                        width: `${cell.column.getSize()}px`,
-                        maxWidth: `${cell.column.columnDef.maxSize ?? cell.column.getSize()}px`,
-                      }}
-                      className="py-2 overflow-hidden"
-                    >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
-              {/* Filler row: stretches the grid (and its column rules) to the
-                  bottom of the container when the rows don't fill it. */}
-              <TableRow className="hover:bg-transparent" style={{ height: "100%" }}>
-                {table.getVisibleLeafColumns().map((col) => (
-                  <TableCell key={col.id} className="p-0" />
+            table.getRowModel().rows.map((row) => (
+              <TableRow
+                key={row.id}
+                onClick={() => setActiveRow(row.original.id)}
+                onDoubleClick={() => onOpen(row.original.id)}
+                className={cn(
+                  "group",
+                  selectedId === row.original.id && "bg-accent/40",
+                )}
+              >
+                {row.getVisibleCells().map((cell) => (
+                  <TableCell
+                    key={cell.id}
+                    style={{
+                      width: `${cell.column.getSize()}px`,
+                      maxWidth: `${cell.column.columnDef.maxSize ?? cell.column.getSize()}px`,
+                    }}
+                    className="py-2 overflow-hidden"
+                  >
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </TableCell>
                 ))}
               </TableRow>
-            </>
+            ))
           )}
         </TableBody>
       </Table>
