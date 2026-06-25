@@ -40,6 +40,14 @@ export function ApiDialog({
         </DialogHeader>
 
         <div className="px-5 pb-4 space-y-4">
+          <Zone label="Collection URL">
+            <CodeBlock text={listUrl} />
+            <p className="text-xs text-muted-foreground">
+              Paste this straight into Framer/AnySync, Zapier, or any sync tool — just the
+              URL, method <code className="font-mono">GET</code>, no auth.
+            </p>
+          </Zone>
+
           <Zone label="Endpoints">
             <EndpointRow method="GET" path={`/api/entries/${pluralName}`} desc="List all entries" />
             <EndpointRow method="GET" path={`/api/entries/${pluralName}/:id`} desc="Get one entry" />
