@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -83,7 +83,17 @@ export function EntriesTable({
   const [regeneratingRow, setRegeneratingRow] = useState<number | null>(null);
   const [activeRow, setActiveRow] = useState<number | null>(null);
   // Which column currently has a focused cell — drives AI-icon visibility.
-  const [focusedColumn, setFocusedColumn] = useState<string | null>(null);
+  // Which column has a focused cell — drives AI-icon visibility. Kept in a ref
+  // (read by the header) AND state (to trigger the re-render) so it does NOT
+  // enter the `columns` memo deps: recreating columns mid-interaction tears down
+  // an opening Select/Popover (e.g. the date cell). State re-renders; the header
+  // reads the ref via flexRender, columns stay stable.
+  const [, setFocusedColumn] = useState<string | null>(null);
+  const focusedColumnRef = useRef<string | null>(null);
+  function focusColumn(next: string | null) {
+    focusedColumnRef.current = next;
+    setFocusedColumn(next);
+  }
 
   const aiFieldKeys = useMemo(
     () =>
@@ -201,7 +211,7 @@ export function EntriesTable({
             fieldKey={key}
             attr={attr}
             entries={entries}
-            focused={focusedColumn === key}
+            focused={focusedColumnRef.current === key}
             onContentTypeChange={onContentTypeChange}
             onPatch={onPatch}
           />
@@ -270,7 +280,6 @@ export function EntriesTable({
       regeneratingRow,
       activeRow,
       aiFieldKeys,
-      focusedColumn,
     ],
   );
 
@@ -289,11 +298,8 @@ export function EntriesTable({
   return (
     <div
       className="flex-1 overflow-auto [&>[data-slot=table-container]]:overflow-x-visible"
-      onFocus={(e) => {
-        const f = (e.target as HTMLElement).getAttribute("data-field");
-        if (f) setFocusedColumn(f);
-      }}
-      onBlur={() => setFocusedColumn(null)}
+      onFocus={(e) => focusColumn((e.target as HTMLElement).getAttribute("data-field"))}
+      onBlur={() => focusColumn(null)}
     >
       <Table
         className="border-collapse [&_th]:border-r [&_th]:border-border [&_td]:border-r [&_td]:border-border [&_th:last-child]:border-r-0 [&_td:last-child]:border-r-0 [&_tbody_tr:last-child]:border-b [&_tbody_tr:last-child]:border-border"
