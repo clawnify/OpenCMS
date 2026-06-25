@@ -105,22 +105,30 @@ export function App() {
         onContentTypesChange={refreshContentTypes}
       />
       <main className="flex-1 flex flex-col min-w-0">
-        <div className="flex items-center gap-2 px-3 h-10 border-b border-border">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={createEntry}
-            className="h-7 w-7 p-0"
-            title="New entry"
-            disabled={!activeCT}
-          >
-            <Plus className="size-4" />
-          </Button>
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Filter">
+        <div className="flex items-center gap-2 px-4 h-12 border-b border-border">
+          <h1 className="text-[1.25rem] font-bold tracking-tight leading-none truncate">
+            {activeCT?.info.displayName ?? "Open CMS"}
+          </h1>
+          {activeCT && (
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {entries.length}
+            </span>
+          )}
+          <div className="flex-1" />
+          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Filter">
             <Filter className="size-4" />
           </Button>
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Search">
+          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Search">
             <Search className="size-4" />
+          </Button>
+          <Button
+            size="sm"
+            onClick={createEntry}
+            disabled={!activeCT}
+            className="h-8 gap-1.5"
+          >
+            <Plus className="size-4" />
+            New {activeCT?.info.singularName ?? "entry"}
           </Button>
         </div>
         {activeCT ? (

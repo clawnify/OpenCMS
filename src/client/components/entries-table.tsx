@@ -7,7 +7,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles, Loader2, Plus, Maximize } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Popover,
@@ -15,6 +15,14 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -24,12 +32,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { DynamicCell } from "./dynamic-cell";
-import { FieldEditor } from "./field-editor";
+import { FieldEditor, ALL_TYPES, TYPE_ICON, TYPE_LABEL } from "./field-editor";
 import { api } from "@/lib/api";
 import {
   fieldLabel,
   visibleFieldEntries,
   type Attribute,
+  type AttributeType,
   type ContentType,
   type Entry,
 } from "@/lib/content-types";
@@ -71,6 +80,18 @@ export function EntriesTable({
 }: EntriesTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [regeneratingCell, setRegeneratingCell] = useState<string | null>(null);
+  const [regeneratingRow, setRegeneratingRow] = useState<number | null>(null);
+  const [activeRow, setActiveRow] = useState<number | null>(null);
+  // Which column currently has a focused cell — drives AI-icon visibility.
+  const [focusedColumn, setFocusedColumn] = useState<string | null>(null);
+
+  const aiFieldKeys = useMemo(
+    () =>
+      visibleFieldEntries(contentType)
+        .filter(([, attr]) => attr.aiConfig?.enabled)
+        .map(([key]) => key),
+    [contentType],
+  );
 
   async function regenerateCell(entryId: number, fieldKey: string) {
     const cellId = `${entryId}:${fieldKey}`;
@@ -89,6 +110,28 @@ export function EntriesTable({
     }
   }
 
+  // Regenerate every AI-enabled column for one row, sequentially.
+  async function regenerateRow(entryId: number) {
+    if (!aiFieldKeys.length) return;
+    setRegeneratingRow(entryId);
+    try {
+      for (const fieldKey of aiFieldKeys) {
+        try {
+          const { value } = await api.aiGenerateField(
+            contentType.info.pluralName,
+            entryId,
+            fieldKey,
+          );
+          onPatch(entryId, { [fieldKey]: value });
+        } catch (e) {
+          console.error("AI row regenerate failed", fieldKey, e);
+        }
+      }
+    } finally {
+      setRegeneratingRow(null);
+    }
+  }
+
   const columns = useMemo<ColumnDef<Entry>[]>(
     () => [
       {
@@ -103,17 +146,51 @@ export function EntriesTable({
             aria-label="Select all"
           />
         ),
-        cell: ({ row }) => (
-          <CellStop>
-            <Checkbox
-              checked={row.getIsSelected()}
-              onCheckedChange={(v) => row.toggleSelected(!!v)}
-              aria-label="Select row"
-            />
-          </CellStop>
-        ),
+        cell: ({ row }) => {
+          const id = row.original.id;
+          const revealed = activeRow === id || row.getIsSelected();
+          const rowBusy = regeneratingRow === id;
+          return (
+            <CellStop>
+              <div className="flex items-center gap-1">
+                <Checkbox
+                  checked={row.getIsSelected()}
+                  onCheckedChange={(v) => row.toggleSelected(!!v)}
+                  aria-label="Select row"
+                />
+                <button
+                  onClick={() => onOpen(id)}
+                  title="Open entry"
+                  className={cn(
+                    "inline-flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground",
+                    revealed ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                  )}
+                >
+                  <Maximize className="size-3.5" />
+                </button>
+                {aiFieldKeys.length > 0 && (
+                  <button
+                    onClick={() => regenerateRow(id)}
+                    disabled={rowBusy}
+                    title={rowBusy ? "Regenerating…" : "Regenerate AI fields"}
+                    className={cn(
+                      "inline-flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground",
+                      revealed || rowBusy ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                    )}
+                  >
+                    {rowBusy ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="size-3.5" />
+                    )}
+                  </button>
+                )}
+              </div>
+            </CellStop>
+          );
+        },
         enableSorting: false,
-        size: 40,
+        size: 96,
       },
       ...visibleFieldEntries(contentType).map(([key, attr]): ColumnDef<Entry> => ({
         id: key,
@@ -124,6 +201,7 @@ export function EntriesTable({
             fieldKey={key}
             attr={attr}
             entries={entries}
+            focused={focusedColumn === key}
             onContentTypeChange={onContentTypeChange}
             onPatch={onPatch}
           />
@@ -169,8 +247,31 @@ export function EntriesTable({
           );
         },
       })),
+      {
+        id: "__add_column__",
+        header: () => (
+          <AddColumnHeader
+            contentType={contentType}
+            onContentTypeChange={onContentTypeChange}
+          />
+        ),
+        cell: () => null,
+        enableSorting: false,
+        size: 44,
+      },
     ],
-    [contentType, entries, onOpen, onPatch, onContentTypeChange, regeneratingCell],
+    [
+      contentType,
+      entries,
+      onOpen,
+      onPatch,
+      onContentTypeChange,
+      regeneratingCell,
+      regeneratingRow,
+      activeRow,
+      aiFieldKeys,
+      focusedColumn,
+    ],
   );
 
   const table = useReactTable({
@@ -186,9 +287,16 @@ export function EntriesTable({
   });
 
   return (
-    <div className="flex-1 overflow-auto">
+    <div
+      className="flex-1 overflow-auto"
+      onFocus={(e) => {
+        const f = (e.target as HTMLElement).getAttribute("data-field");
+        if (f) setFocusedColumn(f);
+      }}
+      onBlur={() => setFocusedColumn(null)}
+    >
       <Table
-        className="border-collapse [&_th]:border-r [&_th]:border-border [&_td]:border-r [&_td]:border-border [&_th:last-child]:border-r-0 [&_td:last-child]:border-r-0"
+        className="h-full border-collapse [&_th]:border-r [&_th]:border-border [&_td]:border-r [&_td]:border-border [&_th:last-child]:border-r-0 [&_td:last-child]:border-r-0"
         style={{ tableLayout: "fixed", width: table.getTotalSize() }}
       >
         <TableHeader>
@@ -222,29 +330,39 @@ export function EntriesTable({
               </TableCell>
             </TableRow>
           ) : (
-            table.getRowModel().rows.map((row) => (
-              <TableRow
-                key={row.id}
-                onDoubleClick={() => onOpen(row.original.id)}
-                className={cn(
-                  "group",
-                  selectedId === row.original.id && "bg-accent/40",
-                )}
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <TableCell
-                    key={cell.id}
-                    style={{
-                      width: `${cell.column.getSize()}px`,
-                      maxWidth: `${cell.column.columnDef.maxSize ?? cell.column.getSize()}px`,
-                    }}
-                    className="py-2 overflow-hidden"
-                  >
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </TableCell>
+            <>
+              {table.getRowModel().rows.map((row) => (
+                <TableRow
+                  key={row.id}
+                  onClick={() => setActiveRow(row.original.id)}
+                  onDoubleClick={() => onOpen(row.original.id)}
+                  className={cn(
+                    "group",
+                    selectedId === row.original.id && "bg-accent/40",
+                  )}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell
+                      key={cell.id}
+                      style={{
+                        width: `${cell.column.getSize()}px`,
+                        maxWidth: `${cell.column.columnDef.maxSize ?? cell.column.getSize()}px`,
+                      }}
+                      className="py-2 overflow-hidden"
+                    >
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+              {/* Filler row: stretches the grid (and its column rules) to the
+                  bottom of the container when the rows don't fill it. */}
+              <TableRow className="hover:bg-transparent" style={{ height: "100%" }}>
+                {table.getVisibleLeafColumns().map((col) => (
+                  <TableCell key={col.id} className="p-0" />
                 ))}
               </TableRow>
-            ))
+            </>
           )}
         </TableBody>
       </Table>
@@ -257,6 +375,7 @@ function ColumnHeader({
   fieldKey,
   attr,
   entries,
+  focused,
   onContentTypeChange,
   onPatch,
 }: {
@@ -264,6 +383,7 @@ function ColumnHeader({
   fieldKey: string;
   attr: Attribute;
   entries: Entry[];
+  focused: boolean;
   onContentTypeChange: () => void;
   onPatch: (id: number, patch: Record<string, unknown>) => void;
 }) {
@@ -271,6 +391,9 @@ function ColumnHeader({
   const [bulkBusy, setBulkBusy] = useState(false);
   const aiEnabled = !!attr.aiConfig?.enabled;
   const label = fieldLabel(fieldKey, attr);
+  // Always visible when AI is on (or the popover/focus is active); otherwise
+  // only on column-name hover.
+  const showAi = aiEnabled || focused || open;
 
   async function regenerateAll() {
     setBulkBusy(true);
@@ -293,15 +416,16 @@ function ColumnHeader({
   }
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="group/col flex items-center gap-1.5">
       <span className="truncate">{label}</span>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
             type="button"
             className={cn(
-              "ml-auto inline-flex items-center justify-center size-5 rounded hover:bg-accent",
+              "ml-auto inline-flex items-center justify-center size-5 rounded-sm transition-opacity hover:bg-accent",
               aiEnabled ? "text-foreground" : "text-muted-foreground/50 hover:text-foreground",
+              showAi ? "opacity-100" : "opacity-0 group-hover/col:opacity-100",
             )}
             title={aiEnabled ? "AI is on for this column" : "Configure AI for this column"}
           >
@@ -342,6 +466,105 @@ function ColumnHeader({
         </PopoverContent>
       </Popover>
     </div>
+  );
+}
+
+/** Trailing "+" column header — adds a new field/column to the library. */
+function AddColumnHeader({
+  contentType,
+  onContentTypeChange,
+}: {
+  contentType: ContentType;
+  onContentTypeChange: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [key, setKey] = useState("");
+  const [type, setType] = useState<AttributeType>("string");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function create() {
+    const k = key.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    if (!k) return setError("Field key is required.");
+    if (k in contentType.attributes) return setError(`Field "${k}" already exists.`);
+    setBusy(true);
+    setError(null);
+    try {
+      const attr: Attribute =
+        type === "enumeration"
+          ? ({ type: "enumeration", enum: ["option_a", "option_b"] } as Attribute)
+          : ({ type } as Attribute);
+      await api.patchContentType(contentType.uid, {
+        attributes: { ...contentType.attributes, [k]: attr },
+      });
+      onContentTypeChange();
+      setKey("");
+      setType("string");
+      setOpen(false);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title="Add field"
+          className="mx-auto flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          <Plus className="size-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="bottom" align="end" sideOffset={6} className="w-72 p-3">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            create();
+          }}
+          className="space-y-3"
+        >
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground">Field key</label>
+            <Input
+              autoFocus
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              placeholder="my_field"
+              className="font-mono text-sm"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground">Type</label>
+            <Select value={type} onValueChange={(t: AttributeType) => setType(t)}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ALL_TYPES.map((t) => {
+                  const Icon = TYPE_ICON[t];
+                  return (
+                    <SelectItem key={t} value={t}>
+                      <span className="inline-flex items-center gap-2">
+                        <Icon className="size-3.5 opacity-60" />
+                        {TYPE_LABEL[t]}
+                      </span>
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          </div>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <Button type="submit" size="sm" disabled={busy} className="w-full">
+            {busy ? "Adding…" : "Add field"}
+          </Button>
+        </form>
+      </PopoverContent>
+    </Popover>
   );
 }
 

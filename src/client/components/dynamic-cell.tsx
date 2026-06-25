@@ -9,7 +9,10 @@ import {
 import { StatusPill } from "./status-pill";
 import { api } from "@/lib/api";
 import type { Attribute, EnumerationAttribute } from "@/lib/content-types";
-import { cn } from "@/lib/utils";
+import { cn, pillColor } from "@/lib/utils";
+
+// Free-text fields that name a category-like value render as colored data pills.
+const CATEGORICAL_KEYS = new Set(["category", "author", "tag", "type", "owner"]);
 
 interface CellProps {
   value: unknown;
@@ -24,7 +27,13 @@ interface CellProps {
  * cells defer to the slide-in sheet rather than editing in place.
  */
 export function DynamicCell(props: CellProps) {
-  const { attr } = props;
+  const { attr, fieldKey } = props;
+  if (
+    (attr.type === "string" || attr.type === "text") &&
+    CATEGORICAL_KEYS.has(fieldKey)
+  ) {
+    return <PillCell {...props} />;
+  }
   switch (attr.type) {
     case "boolean":
       return <BooleanCell {...props} />;
@@ -87,6 +96,63 @@ function TextCell({
         className,
       )}
     />
+  );
+}
+
+/** Categorical free-text (category, author, tag) shown as a stable colored
+ *  data pill; click to edit inline. */
+function PillCell({ value, onCommit, fieldKey }: CellProps) {
+  const [editing, setEditing] = useState(false);
+  const [local, setLocal] = useState(String(value ?? ""));
+  useEffect(() => setLocal(String(value ?? "")), [value]);
+  const str = String(value ?? "").trim();
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={local}
+        onChange={(e) => setLocal(e.target.value)}
+        onBlur={() => {
+          setEditing(false);
+          if (local !== String(value ?? "")) onCommit(local);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          if (e.key === "Escape") {
+            setLocal(String(value ?? ""));
+            setEditing(false);
+          }
+        }}
+        data-field={fieldKey}
+        className="w-full bg-transparent text-sm focus:outline-none border-0 ring-0 px-0 py-0"
+      />
+    );
+  }
+
+  if (!str) {
+    return (
+      <button
+        onClick={() => setEditing(true)}
+        data-field={fieldKey}
+        className="text-sm italic text-muted-foreground/60 hover:text-foreground"
+      >
+        —
+      </button>
+    );
+  }
+
+  const c = pillColor(str.toLowerCase());
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      data-field={fieldKey}
+      title={str}
+      className="inline-flex max-w-full items-center truncate rounded-full px-2 py-0.5 text-xs font-medium"
+      style={{ backgroundColor: c.bg, color: c.text }}
+    >
+      {str}
+    </button>
   );
 }
 

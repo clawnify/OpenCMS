@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Database, MoreHorizontal, Plus } from "lucide-react";
+import { Database, MoreHorizontal, Plus, Code2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { FieldsPanel } from "./fields-panel";
 import { LibraryDialog } from "./library-dialog";
 import { NewLibraryDialog } from "./new-library-dialog";
+import { ApiDialog } from "./api-dialog";
 import type { ContentType } from "@/lib/content-types";
 
 interface Collection {
@@ -31,6 +32,7 @@ export function Sidebar({
   const [tab, setTab] = useState<SidebarTab>("libraries");
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
+  const [apiOpen, setApiOpen] = useState(false);
 
   const menuCT = menuFor ? contentTypes.find((c) => c.info.pluralName === menuFor) ?? null : null;
   const activeCT = contentTypes.find((c) => c.info.pluralName === activeId) ?? null;
@@ -78,6 +80,29 @@ export function Sidebar({
           <div className="px-3 py-3 text-sm text-muted-foreground">No library selected.</div>
         )}
       </div>
+
+      {activeCT && (
+        <div className="border-t border-sidebar-border p-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start gap-2 text-muted-foreground"
+            onClick={() => setApiOpen(true)}
+          >
+            <Code2 className="size-3.5" />
+            API
+          </Button>
+        </div>
+      )}
+
+      {activeCT && (
+        <ApiDialog
+          open={apiOpen}
+          onOpenChange={setApiOpen}
+          pluralName={activeCT.info.pluralName}
+          displayName={activeCT.info.displayName}
+        />
+      )}
 
       <LibraryDialog
         contentType={menuCT}
