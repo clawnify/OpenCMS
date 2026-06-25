@@ -144,7 +144,7 @@ export function EntriesTable({
                   onCommit={(value) => onPatch(row.original.id, { [key]: value })}
                   onOpenSheet={() => onOpen(row.original.id)}
                 />
-                {aiEnabled && hasValue && (
+                {aiEnabled && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -155,7 +155,7 @@ export function EntriesTable({
                       "absolute -top-0.5 right-0 size-5 rounded bg-background/90 border border-border shadow-sm inline-flex items-center justify-center text-muted-foreground hover:text-foreground",
                       busy ? "opacity-100" : "opacity-0 group-hover/cell:opacity-100",
                     )}
-                    title={busy ? "Regenerating…" : "Regenerate with AI"}
+                    title={busy ? "Generating…" : hasValue ? "Regenerate with AI" : "Generate with AI"}
                   >
                     {busy ? (
                       <Loader2 className="size-3 animate-spin" />
