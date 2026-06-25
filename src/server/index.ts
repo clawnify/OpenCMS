@@ -1,4 +1,5 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
+import { cors } from "hono/cors";
 import { initDB } from "./db";
 import { initUploads } from "./uploads";
 import { registerUploadRoutes } from "./routes-uploads";
@@ -17,6 +18,20 @@ type Env = {
 };
 
 const app = new OpenAPIHono<Env>();
+
+// The read API is public (see clawnify.json public_routes) and meant to be
+// consumed cross-origin by external tools — Framer/AnySync, Zapier, sites.
+// Browsers block those fetches without CORS headers, so allow any origin to
+// read. Writes are issued same-origin from this app's own UI, so they need no
+// CORS; cross-origin writes stay blocked (only GET is allowed cross-origin).
+app.use(
+  "/api/*",
+  cors({
+    origin: "*",
+    allowMethods: ["GET", "OPTIONS"],
+    maxAge: 86400,
+  }),
+);
 
 let schemaApplied = false;
 
