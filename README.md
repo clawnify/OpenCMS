@@ -1,3 +1,5 @@
+<img src="readme-banner.png" alt="Open CMS preview" />
+
 # Open CMS
 
 A headless content-management studio built for **Clawnify**. **React + Tailwind CSS + Hono + D1 + R2**, deployed to Cloudflare Workers via [Clawnify](https://clawnify.com).

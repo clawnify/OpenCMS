@@ -2,7 +2,8 @@
   "$schema": "https://app.clawnify.com/schema/v1/clawnify.json",
   "version": 1,
   "name": "Open CMS",
-  "description": "",
+  "description": "An open headless CMS — edit content in a table, serve it over a JSON API.",
+  "icon": "icon.svg",
   "app": {
     "framework": "react+hono",
     "database": true,
