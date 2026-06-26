@@ -127,8 +127,8 @@ export function FieldEditor({
   }
 
   return (
-    <div className="text-sm">
-      <div className="px-3 py-3 space-y-3">
+    <div className="text-sm flex flex-col min-h-0">
+      <div className="px-3 py-3 space-y-3 flex-1 overflow-y-auto min-h-0">
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground font-normal">Display label</Label>
@@ -233,7 +233,7 @@ export function FieldEditor({
         )}
       </div>
 
-      <div className="flex items-center justify-between border-t border-border px-3 py-2 bg-muted/40">
+      <div className="flex items-center justify-between border-t border-border px-3 py-2 bg-muted/40 shrink-0">
         {locked || !onRemove ? (
           <span className="text-xs text-muted-foreground">{locked ? "Built-in" : ""}</span>
         ) : (

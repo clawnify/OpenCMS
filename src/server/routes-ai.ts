@@ -15,6 +15,7 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { get } from "./db";
 import {
   type Attribute,
+  type ContentType,
   getContentTypeByPluralName,
 } from "./content-types";
 import {
@@ -35,6 +36,88 @@ type Bindings = {
 
 function quote(ident: string): string {
   return '"' + ident.replace(/"/g, '""') + '"';
+}
+
+/** "post_date" → "Post date", "metaTitle" → "Meta title". */
+function humanizeKey(key: string): string {
+  const s = key
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .trim();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/**
+ * Build the system prompt for one field generation. Always states what field
+ * is being produced, its type/constraints, and the rest of the row as context,
+ * so generation is sensible even when the user left the AI prompt blank. Any
+ * user-authored prompt is layered on top as additional instructions.
+ */
+function buildSystemPrompt(args: {
+  fieldKey: string;
+  attr: Attribute;
+  contentType: ContentType;
+  customInstructions: string;
+  otherFields: string;
+}): string {
+  const { fieldKey, attr, contentType, customInstructions, otherFields } = args;
+  const label = humanizeKey(fieldKey);
+  const recordName =
+    contentType.info.singularName || contentType.info.displayName || "record";
+
+  const lines: string[] = [
+    `You are filling in a CMS. Generate the value for the "${label}" field of a "${recordName}" record.`,
+  ];
+
+  switch (attr.type) {
+    case "enumeration": {
+      const enums = ("enum" in attr ? attr.enum : []) as string[];
+      if (enums.length) {
+        lines.push(
+          `This field must be exactly one of these values: ${enums.join(", ")}. Respond with only one of them.`,
+        );
+      }
+      break;
+    }
+    case "integer":
+      lines.push("This field is an integer. Respond with a single whole number and nothing else.");
+      break;
+    case "decimal":
+      lines.push("This field is a number. Respond with a single number and nothing else.");
+      break;
+    case "boolean":
+      lines.push('This field is a yes/no boolean. Respond with only "true" or "false".');
+      break;
+    case "date":
+      lines.push("This field is a date. Respond with only an ISO date (YYYY-MM-DD).");
+      break;
+    case "datetime":
+      lines.push("This field is a datetime. Respond with only an ISO datetime (YYYY-MM-DDTHH:MM).");
+      break;
+    case "image":
+      lines.push(`Generate an image suitable for the "${label}" of this ${recordName}.`);
+      break;
+    case "html":
+      lines.push(`Generate an HTML fragment for the "${label}" of this ${recordName}.`);
+      break;
+    default:
+      lines.push(
+        `Respond with a concise, appropriate value for "${label}" — just the value itself, with no field name, quotes, or explanation.`,
+      );
+  }
+
+  if (customInstructions.trim()) {
+    lines.push("", "Additional instructions:", customInstructions.trim());
+  }
+
+  lines.push(
+    "",
+    otherFields
+      ? `Here is the rest of this ${recordName} record for context:\n${otherFields}`
+      : `This ${recordName} record has no other fields filled in yet — use the field name and type to produce a sensible value.`,
+  );
+
+  return lines.join("\n");
 }
 
 function coerceForAttr(raw: string, attr: Attribute): unknown {
@@ -116,19 +199,25 @@ export function registerAIRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       );
       if (!row) return c.json({ error: "Entry not found" }, 404);
 
-      const interpolatedPrompt = interpolate(attr.aiConfig.systemPrompt, row);
+      const customInstructions = attr.aiConfig.systemPrompt?.trim()
+        ? interpolate(attr.aiConfig.systemPrompt, row)
+        : "";
 
       // Compose extra context block listing other column values so the model
       // can use them even when the user didn't write explicit {{refs}}.
       const otherFields = Object.entries(row)
         .filter(([k]) => k !== fieldKey && k !== "id" && k !== "created_at" && k !== "updated_at")
         .filter(([, v]) => v !== null && v !== undefined && v !== "")
-        .map(([k, v]) => `- ${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`)
+        .map(([k, v]) => `- ${humanizeKey(k)}: ${typeof v === "string" ? v : JSON.stringify(v)}`)
         .join("\n");
 
-      const systemPrompt = otherFields
-        ? `${interpolatedPrompt}\n\nRow context:\n${otherFields}`
-        : interpolatedPrompt;
+      const systemPrompt = buildSystemPrompt({
+        fieldKey,
+        attr,
+        contentType: ct,
+        customInstructions,
+        otherFields,
+      });
 
       try {
         let value: unknown;

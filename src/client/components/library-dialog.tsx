@@ -78,7 +78,7 @@ export function LibraryDialog({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="sm:max-w-lg p-0 gap-0">
+      <DialogContent className="sm:max-w-lg p-0 gap-0 overflow-hidden">
         {!contentType ? null : view.kind === "menu" ? (
           <MenuView
             contentType={contentType}
@@ -226,7 +226,7 @@ function MenuView({
 
       <Separator />
 
-      <DialogFooter className="px-5 py-3 sm:justify-between">
+      <DialogFooter className="px-5 py-3 mx-0 mb-0 sm:justify-between">
         <Button
           variant="ghost"
           onClick={onDeleteLibrary}
@@ -367,7 +367,7 @@ function NewFieldView({
         )}
       </div>
 
-      <DialogFooter className="px-5 py-3">
+      <DialogFooter className="px-5 py-3 mx-0 mb-0">
         <Button variant="outline" onClick={onBack} disabled={busy}>
           Cancel
         </Button>
@@ -411,7 +411,7 @@ function DeleteFieldConfirmView({
         </div>
       </div>
 
-      <DialogFooter className="px-5 py-3">
+      <DialogFooter className="px-5 py-3 mx-0 mb-0">
         <Button variant="outline" onClick={onBack} disabled={busy}>
           Cancel
         </Button>
@@ -463,7 +463,7 @@ function DeleteLibraryConfirmView({
         </div>
       </div>
 
-      <DialogFooter className="px-5 py-3">
+      <DialogFooter className="px-5 py-3 mx-0 mb-0">
         <Button variant="outline" onClick={onBack} disabled={busy}>
           Cancel
         </Button>

@@ -52,7 +52,11 @@ export function EntryEditor({
       Number(entry.id),
       p,
       (saved) => {
-        setLocal(saved);
+        // Don't write the server response back into `local`: the fields are
+        // controlled by it, and a save that lands mid-typing would reset the
+        // input to a slightly-older value, bouncing the cursor and scrambling
+        // words. `local` (the optimistic edit buffer) is the source of truth
+        // while the editor is open; the list still updates via onChange.
         onChange(saved);
         setSavingState("saved");
       },
