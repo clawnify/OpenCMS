@@ -429,7 +429,12 @@ function ColumnHeader({
             <Sparkles className="size-3.5" />
           </button>
         </PopoverTrigger>
-        <PopoverContent side="bottom" align="end" sideOffset={6} className="w-80 p-0">
+        <PopoverContent
+          side="bottom"
+          align="end"
+          sideOffset={6}
+          className="w-80 p-0 flex flex-col max-h-[var(--radix-popover-content-available-height)]"
+        >
           <FieldEditor
             fieldKey={fieldKey}
             attribute={attr}
