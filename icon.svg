@@ -1,0 +1,19 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="cms-bg" x1="24" y1="0" x2="24" y2="48" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E96C7C"/>
+      <stop offset="1" stop-color="#D8455A"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" fill="url(#cms-bg)"/>
+  <!-- back card (collection depth) -->
+  <rect x="19" y="9" width="20" height="24" rx="3" fill="#FFFFFF" opacity="0.4"/>
+  <!-- front card (a content entry) -->
+  <rect x="11" y="13" width="24" height="26" rx="3.5" fill="#FFFFFF"/>
+  <!-- cover image block -->
+  <rect x="14.5" y="16.5" width="17" height="7" rx="2" fill="#F2A2AD"/>
+  <!-- text lines -->
+  <rect x="14.5" y="26.5" width="17" height="2.2" rx="1.1" fill="#F2A2AD"/>
+  <rect x="14.5" y="30.4" width="17" height="2.2" rx="1.1" fill="#F2A2AD"/>
+  <rect x="14.5" y="34.3" width="10.5" height="2.2" rx="1.1" fill="#F2A2AD" opacity="0.65"/>
+</svg>
