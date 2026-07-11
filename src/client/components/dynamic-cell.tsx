@@ -17,6 +17,7 @@ import { StatusPill } from "./status-pill";
 import { Checkbox } from "@/components/ui/checkbox";
 import { api } from "@/lib/api";
 import type { Attribute, EnumerationAttribute } from "@/lib/content-types";
+import { customFieldByUid } from "@/lib/custom-fields";
 import { cn, pillColor } from "@/lib/utils";
 
 // Free-text fields that name a category-like value render as colored data pills.
@@ -36,6 +37,18 @@ interface CellProps {
  */
 export function DynamicCell(props: CellProps) {
   const { attr, fieldKey } = props;
+  const custom = customFieldByUid(attr.customField);
+  if (custom) {
+    return (
+      <custom.Cell
+        value={props.value}
+        attr={attr}
+        fieldKey={fieldKey}
+        onCommit={props.onCommit}
+        onOpenSheet={props.onOpenSheet}
+      />
+    );
+  }
   if (
     (attr.type === "string" || attr.type === "text") &&
     CATEGORICAL_KEYS.has(fieldKey)

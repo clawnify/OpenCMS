@@ -14,6 +14,7 @@ Auth, plugins, and integrations are handled by Clawnify — this template focuse
 - **Slide-in editor sheet** — opens as an overlay (table stays visible underneath) for rich-text editing
 - **Rich-text content** — Tiptap editor with image upload, links, lists, blockquote, code blocks, and headings
 - **Live status pill** — green / gray pill with embedded chevron, change inline or from the editor
+- **Custom field types** — pick Score (colored gauge), Badge (enum as colored pills), URL, Email, Phone, or Tags when adding a field; each renders a purpose-built widget over a plain base-type column
 - **Auto-save with debounce** — 350ms debounce, Saving / Saved / Error indicator
 - **Slug auto-generation** — slugified from title, kept unique server-side, with live URL preview
 - **Image library on R2** — upload from cell or rich-text editor, served from `/api/uploads/:filename`

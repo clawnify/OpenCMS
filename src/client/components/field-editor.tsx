@@ -35,6 +35,7 @@ import {
   type EnumerationAttribute,
   isFieldLocked,
 } from "@/lib/content-types";
+import { CUSTOM_FIELDS, customFieldByUid } from "@/lib/custom-fields";
 
 export const TYPE_ICON: Record<AttributeType, typeof Type> = {
   string: Type,
@@ -109,9 +110,24 @@ export function FieldEditor({
   const locked = isFieldLocked(attribute);
   const typeChanged = draft.type !== attribute.type;
   const dirty = JSON.stringify(draft) !== JSON.stringify(attribute);
+  const customDef = customFieldByUid(draft.customField);
 
   function patchDraft(p: Partial<Attribute>) {
     setDraft((d) => ({ ...d, ...p }) as Attribute);
+  }
+
+  /** Type picker value = a custom-field uid, or a base type. */
+  function selectType(v: string) {
+    const def = customFieldByUid(v);
+    if (def) {
+      patchDraft({
+        type: def.baseType,
+        customField: def.uid,
+        options: def.defaultOptions ? { ...def.defaultOptions } : {},
+      });
+    } else {
+      patchDraft({ type: v as AttributeType, customField: undefined, options: undefined });
+    }
   }
 
   async function save() {
@@ -148,9 +164,9 @@ export function FieldEditor({
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground font-normal">Type</Label>
           <Select
-            value={draft.type}
+            value={draft.customField ?? draft.type}
             disabled={locked}
-            onValueChange={(t: AttributeType) => patchDraft({ type: t })}
+            onValueChange={selectType}
           >
             <SelectTrigger className="h-8">
               <SelectValue />
@@ -163,6 +179,20 @@ export function FieldEditor({
                     <span className="inline-flex items-center gap-2">
                       <Icon className="size-3.5 opacity-60" />
                       {TYPE_LABEL[t]}
+                    </span>
+                  </SelectItem>
+                );
+              })}
+              <div className="px-2 pt-2 pb-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+                Custom
+              </div>
+              {CUSTOM_FIELDS.map((f) => {
+                const Icon = f.icon;
+                return (
+                  <SelectItem key={f.uid} value={f.uid}>
+                    <span className="inline-flex items-center gap-2">
+                      <Icon className="size-3.5 opacity-60" />
+                      {f.label}
                     </span>
                   </SelectItem>
                 );
@@ -195,6 +225,13 @@ export function FieldEditor({
               placeholder="draft&#10;live"
             />
           </div>
+        )}
+
+        {customDef?.OptionsEditor && (
+          <customDef.OptionsEditor
+            options={draft.options ?? {}}
+            onChange={(options) => patchDraft({ options })}
+          />
         )}
 
         <div className="grid grid-cols-2 gap-3 pt-1">
