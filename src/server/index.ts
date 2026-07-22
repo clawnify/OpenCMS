@@ -1,6 +1,5 @@
-import { OpenAPIHono } from "@hono/zod-openapi";
+import { createApp } from "@clawnify/app";
 import { cors } from "hono/cors";
-import { initDB } from "./db";
 import { initUploads } from "./uploads";
 import { registerUploadRoutes } from "./routes-uploads";
 import { registerContentTypeRoutes } from "./routes-content-types";
@@ -17,7 +16,7 @@ type Env = {
   Bindings: { DB: D1Database; UPLOADS: R2Bucket; OPENROUTER_API_KEY?: string };
 };
 
-const app = new OpenAPIHono<Env>();
+const app = createApp<Env>({ title: "Open CMS API", version: "1.0.0" });
 
 // The read API is public (see clawnify.json public_routes) and meant to be
 // consumed cross-origin by external tools — Framer/AnySync, Zapier, sites.
@@ -36,7 +35,6 @@ app.use(
 let schemaApplied = false;
 
 app.use("*", async (c, next) => {
-  initDB(c.env);
   initUploads(c.env.UPLOADS);
   if (!schemaApplied) {
     // content_types itself is provisioned by src/server/schema.sql at
@@ -61,10 +59,5 @@ registerContentTypeRoutes(app);
 registerEntryRoutes(app);
 registerUploadRoutes(app);
 registerAIRoutes(app);
-
-app.doc("/api/openapi.json", {
-  openapi: "3.0.0",
-  info: { version: "1.0.0", title: "Open CMS API" },
-});
 
 export default app;
