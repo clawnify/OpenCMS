@@ -171,7 +171,7 @@ export function EntryEditor({
             setNotes(e.target.value);
             patch({ [NOTES_KEY]: e.target.value });
           }}
-          placeholder="The angle, what you'd say about this from your own experience, sources, what to avoid…"
+          placeholder="The angle, what you know about this first-hand, what to avoid…"
           className="min-h-24 bg-background text-sm"
           data-field={NOTES_KEY}
         />

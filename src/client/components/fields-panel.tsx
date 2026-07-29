@@ -78,6 +78,30 @@ function FieldRow({
           fieldKey={fieldKey}
           attribute={attribute}
           siblingFieldKeys={Object.keys(contentType.attributes).filter((k) => k !== fieldKey)}
+          onRemove={
+            locked
+              ? undefined
+              : async () => {
+                  // Same destructive edit the library dialog offers, reachable from
+                  // the panel people actually browse fields in. Confirm inline rather
+                  // than duplicating that dialog's whole view stack.
+                  if (
+                    !window.confirm(
+                      `Delete "${label}"? The ${fieldKey} column and every value stored in it are dropped. This can't be undone.`,
+                    )
+                  ) {
+                    return;
+                  }
+                  const next = { ...contentType.attributes };
+                  delete next[fieldKey];
+                  await api.patchContentType(contentType.uid, {
+                    attributes: next,
+                    applyDestructive: true,
+                  });
+                  onChange();
+                  setOpen(false);
+                }
+          }
           onCommit={async (next) => {
             const isTypeChange = next.type !== attribute.type;
             const merged = { ...contentType.attributes, [fieldKey]: next };

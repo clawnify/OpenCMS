@@ -14,7 +14,6 @@ import { RichEditor } from "./rich-editor";
 import { StatusPill } from "./status-pill";
 import { api } from "@/lib/api";
 import type { Attribute, EnumerationAttribute } from "@/lib/content-types";
-import { customFieldByUid } from "@/lib/custom-fields";
 import { cn } from "@/lib/utils";
 
 interface FieldProps {
@@ -28,17 +27,6 @@ interface FieldProps {
 
 export function DynamicField(props: FieldProps) {
   const { attr } = props;
-  const custom = customFieldByUid(attr.customField);
-  if (custom) {
-    return (
-      <custom.Input
-        value={props.value}
-        attr={attr}
-        fieldKey={props.fieldKey}
-        onChange={props.onChange}
-      />
-    );
-  }
   switch (attr.type) {
     case "boolean":
       return <BooleanField {...props} />;
