@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from "react";
-import { X, Trash2, Sparkles, Loader2 } from "lucide-react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { X, Trash2, Sparkles, Loader2, NotebookPen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import { DynamicField } from "./dynamic-field";
 import { api } from "@/lib/api";
 import {
   fieldLabel,
+  NOTES_KEY,
   type Attribute,
   type ContentType,
   type Entry,
@@ -33,6 +35,11 @@ export function EntryEditor({
   const [local, setLocal] = useState<Entry>(entry);
   const [savingState, setSavingState] = useState<"saved" | "saving" | "error">("saved");
   const [generating, setGenerating] = useState<Record<string, boolean>>({});
+  // Notes stay out of the way until asked for: the panel shows on its own once
+  // the entry has any, otherwise it's one click away. They arrive from their own
+  // endpoint — entry payloads deliberately don't carry them (see routes-entries).
+  const [notesOpened, setNotesOpened] = useState(false);
+  const [notes, setNotes] = useState("");
   // Track which AI fields we've already auto-triggered in this session so a
   // single failure doesn't loop, and a successful fill doesn't re-trigger on
   // remount-induced local changes.
@@ -41,6 +48,19 @@ export function EntryEditor({
   useEffect(() => {
     setLocal(entry);
     autoAttemptedRef.current = new Set();
+    setNotesOpened(false);
+    setNotes("");
+    let stale = false;
+    api
+      .getNotes(contentType.info.pluralName, entry.id)
+      .then((r) => {
+        if (!stale) setNotes(r.notes ?? "");
+      })
+      .catch((e) => console.error("Could not load notes", e));
+    return () => {
+      stale = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entry.id]);
 
   function patch(p: Record<string, unknown>) {
@@ -123,9 +143,52 @@ export function EntryEditor({
 
   const contextValues: Record<string, unknown> = local;
 
-  const entries = Object.entries(contentType.attributes);
+  // `notes` is a platform column with its own panel below. Drop any attribute
+  // of the same name (possible in a library created before it was reserved) so
+  // one column never gets two inputs in the same form.
+  const entries = Object.entries(contentType.attributes).filter(([k]) => k !== NOTES_KEY);
   const top = entries.filter(([, a]) => a.type !== "richtext" && a.type !== "json" && a.type !== "html" && a.type !== "image");
   const bottom = entries.filter(([, a]) => a.type === "richtext" || a.type === "json" || a.type === "html" || a.type === "image");
+
+  // The brief reads as an extension of the description — the summary says what
+  // the entry is, the notes say how to write it — so it sits directly under
+  // that field. Libraries without a `description` get it after the short fields,
+  // still above the long-form content it briefs.
+  const notesAnchor =
+    top.find(([k]) => k === "description")?.[0] ?? top[top.length - 1]?.[0];
+
+  const notesPanel =
+    notesOpened || notes.trim() ? (
+      <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 space-y-2">
+        <div className="flex items-center gap-1.5 text-sm">
+          <NotebookPen className="size-3.5 text-muted-foreground" />
+          Notes
+        </div>
+        <Textarea
+          autoFocus={notesOpened}
+          value={notes}
+          onChange={(e) => {
+            setNotes(e.target.value);
+            patch({ [NOTES_KEY]: e.target.value });
+          }}
+          placeholder="The angle, what you'd say about this from your own experience, sources, what to avoid…"
+          className="min-h-24 bg-background text-sm"
+          data-field={NOTES_KEY}
+        />
+        <p className="text-xs text-muted-foreground">
+          Your brief for whoever writes this — you or an agent. Feeds AI generation as the
+          source of angle and first-hand experience. Not shown to public readers.
+        </p>
+      </div>
+    ) : (
+      <button
+        onClick={() => setNotesOpened(true)}
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <NotebookPen className="size-3.5" />
+        Add notes
+      </button>
+    );
 
   return (
     <div className="flex h-full flex-col bg-background border-l border-border">
@@ -166,24 +229,29 @@ export function EntryEditor({
       <div className="flex-1 overflow-y-auto px-6 py-5">
         <div className="space-y-4 max-w-2xl">
           {top.map(([key, attr]) => (
-            <FieldRow
-              key={key}
-              label={fieldLabel(key, attr)}
-              required={attr.required}
-              aiEnabled={!!attr.aiConfig?.enabled}
-              generating={!!generating[key]}
-              onRegenerate={() => runAIGeneration(key)}
-            >
-              <DynamicField
-                value={local[key]}
-                attr={attr}
-                fieldKey={key}
-                contextValues={contextValues}
-                publicOrigin={publicOrigin}
-                onChange={(v) => patch({ [key]: v })}
-              />
-            </FieldRow>
+            <Fragment key={key}>
+              <FieldRow
+                label={fieldLabel(key, attr)}
+                required={attr.required}
+                aiEnabled={!!attr.aiConfig?.enabled}
+                generating={!!generating[key]}
+                onRegenerate={() => runAIGeneration(key)}
+              >
+                <DynamicField
+                  value={local[key]}
+                  attr={attr}
+                  fieldKey={key}
+                  contextValues={contextValues}
+                  publicOrigin={publicOrigin}
+                  onChange={(v) => patch({ [key]: v })}
+                />
+              </FieldRow>
+              {key === notesAnchor && notesPanel}
+            </Fragment>
           ))}
+
+          {/* A library with no short fields at all still needs the panel. */}
+          {notesAnchor === undefined && notesPanel}
 
           {bottom.length > 0 && (
             <>

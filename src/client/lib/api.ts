@@ -65,6 +65,14 @@ export const api = {
       json<{ ok: true }>,
     ),
 
+  // The author's brief. Deliberately its own endpoint: entry reads are a public
+  // route, notes are not (see src/server/routes-entries.ts). Written back
+  // through updateEntry like any other value.
+  getNotes: (pluralName: string, id: number | string) =>
+    fetch(`/api/notes/${encodeURIComponent(pluralName)}/${id}`).then(
+      json<{ notes: string | null }>,
+    ),
+
   // ── Uploads ─────────────────────────────────────────────────────
   uploadImage: async (file: File) => {
     const fd = new FormData();

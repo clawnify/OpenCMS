@@ -22,6 +22,7 @@ import {
 import {
   fieldLabel,
   isFieldLocked,
+  PLATFORM_COLUMNS,
   type Attribute,
   type AttributeType,
   type ContentType,
@@ -301,6 +302,9 @@ function NewFieldView({
     const k = key.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_");
     if (!k) return setError("Field key is required.");
     if (k in contentType.attributes) return setError(`Field "${k}" already exists.`);
+    if (PLATFORM_COLUMNS.includes(k)) {
+      return setError(`"${k}" is a built-in column — pick another key.`);
+    }
     setBusy(true);
     setError(null);
     try {

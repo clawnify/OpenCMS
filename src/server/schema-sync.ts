@@ -20,6 +20,21 @@ interface ColumnInfo {
   pk: number;
 }
 
+/**
+ * The author's brief for an entry — freeform context written for whoever (or
+ * whatever) produces the content: the angle, the first-hand experience worth
+ * telling, source material, what to avoid.
+ *
+ * It's a platform column rather than a content-type attribute because it isn't
+ * part of the content model: it's input to the work, not a piece of it. That
+ * buys three things a regular field can't — it exists in every library with no
+ * setup, it never becomes a table column, and a schema edit can't drop it.
+ */
+export const NOTES_COLUMN = "notes";
+
+/** Columns the platform owns on every collection, independent of `attributes`. */
+export const PLATFORM_COLUMNS = ["id", "created_at", "updated_at", NOTES_COLUMN];
+
 /** Map an attribute type onto a concrete SQLite affinity. */
 export function sqliteAffinity(attr: Attribute): string {
   switch (attr.type) {
@@ -82,7 +97,7 @@ export async function diffTableAgainstSchema(
 
   const cols = await query<ColumnInfo>(`PRAGMA table_info(${quote(ct.collectionName)})`);
   const colByName = new Map(cols.map((c) => [c.name, c]));
-  const desired = new Set(["id", "created_at", "updated_at", ...Object.keys(ct.attributes)]);
+  const desired = new Set([...PLATFORM_COLUMNS, ...Object.keys(ct.attributes)]);
 
   const add: SchemaDiff["add"] = [];
   const drop: SchemaDiff["drop"] = [];
@@ -142,9 +157,18 @@ async function ensureBaseTable(ct: ContentType) {
     `CREATE TABLE IF NOT EXISTS ${quote(ct.collectionName)} (` +
       "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
       "created_at TEXT NOT NULL DEFAULT (datetime('now')), " +
-      "updated_at TEXT NOT NULL DEFAULT (datetime('now'))" +
+      "updated_at TEXT NOT NULL DEFAULT (datetime('now')), " +
+      `${quote(NOTES_COLUMN)} TEXT` +
       ")",
   );
+  // Tables created before `notes` existed need it added. SQLite has no
+  // ADD COLUMN IF NOT EXISTS, so check the live columns first.
+  const cols = await query<ColumnInfo>(`PRAGMA table_info(${quote(ct.collectionName)})`);
+  if (!cols.some((col) => col.name === NOTES_COLUMN)) {
+    await run(
+      `ALTER TABLE ${quote(ct.collectionName)} ADD COLUMN ${quote(NOTES_COLUMN)} TEXT`,
+    );
+  }
 }
 
 /** Map an Attribute back to a runtime TS type — used by the entry CRUD layer. */

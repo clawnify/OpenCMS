@@ -86,6 +86,17 @@ export interface ContentType {
 
 export type Entry = Record<string, unknown> & { id: number };
 
+/**
+ * The author's brief for an entry (see src/server/schema-sync.ts). It's a
+ * platform column on every collection rather than an attribute, so it never
+ * appears in `attributes`, the table, or the field editor — the Notes panel in
+ * entry-editor.tsx owns it.
+ */
+export const NOTES_KEY = "notes";
+
+/** Column names the platform owns — a field can't be named after one of these. */
+export const PLATFORM_COLUMNS = ["id", "created_at", "updated_at", NOTES_KEY];
+
 /** Sensible default label for a field. */
 export function fieldLabel(key: string, attr: Attribute): string {
   if (attr.displayName?.trim()) return attr.displayName;

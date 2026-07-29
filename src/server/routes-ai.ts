@@ -24,6 +24,7 @@ import {
   generateText,
   interpolate,
 } from "./ai";
+import { NOTES_COLUMN } from "./schema-sync";
 
 const ErrorSchema = z.object({ error: z.string() });
 const ResultSchema = z.object({ value: z.any() });
@@ -58,9 +59,10 @@ function buildSystemPrompt(args: {
   attr: Attribute;
   contentType: ContentType;
   customInstructions: string;
+  notes: string;
   otherFields: string;
 }): string {
-  const { fieldKey, attr, contentType, customInstructions, otherFields } = args;
+  const { fieldKey, attr, contentType, customInstructions, notes, otherFields } = args;
   const label = humanizeKey(fieldKey);
   const recordName =
     contentType.info.singularName || contentType.info.displayName || "record";
@@ -104,6 +106,36 @@ function buildSystemPrompt(args: {
       lines.push(
         `Respond with a concise, appropriate value for "${label}" — just the value itself, with no field name, quotes, or explanation.`,
       );
+  }
+
+  // The author's brief outranks everything else that follows: it is the one
+  // input carrying a point of view and lived detail, and generic output is
+  // exactly what it exists to prevent.
+  //
+  // Image fields are the exception. This whole block goes to the image model as
+  // the user message, and a brief written for prose ("be blunt", "mention the
+  // €400/mo saving") reads to it as instructions to render — the reliable way to
+  // get stray text baked into the picture. Images get the notes as subject
+  // matter only.
+  if (notes.trim() && attr.type === "image") {
+    lines.push(
+      "",
+      "Context for the subject, from the author's notes — use it to decide what to depict. " +
+        "Do not render any of this text in the image:",
+      notes.trim(),
+    );
+  } else if (notes.trim()) {
+    lines.push(
+      "",
+      "The author's notes for this entry — their own brief, in their own words:",
+      notes.trim(),
+      "",
+      "Treat these notes as the primary source for angle, opinion and first-hand experience. " +
+        "Keep their specifics — the details, numbers, names and judgements — instead of " +
+        "smoothing them into generic statements, and never contradict them. They are " +
+        "direction for you, not copy: don't quote them back verbatim or mention that notes " +
+        "exist. Where they conflict with the instructions below, the notes win.",
+    );
   }
 
   if (customInstructions.trim()) {
@@ -204,9 +236,11 @@ export function registerAIRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
         : "";
 
       // Compose extra context block listing other column values so the model
-      // can use them even when the user didn't write explicit {{refs}}.
+      // can use them even when the user didn't write explicit {{refs}}. `notes`
+      // is excluded here — it gets its own, weightier block in the prompt.
+      const skip = new Set([fieldKey, "id", "created_at", "updated_at", NOTES_COLUMN]);
       const otherFields = Object.entries(row)
-        .filter(([k]) => k !== fieldKey && k !== "id" && k !== "created_at" && k !== "updated_at")
+        .filter(([k]) => !skip.has(k))
         .filter(([, v]) => v !== null && v !== undefined && v !== "")
         .map(([k, v]) => `- ${humanizeKey(k)}: ${typeof v === "string" ? v : JSON.stringify(v)}`)
         .join("\n");
@@ -216,6 +250,7 @@ export function registerAIRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
         attr,
         contentType: ct,
         customInstructions,
+        notes: typeof row[NOTES_COLUMN] === "string" ? (row[NOTES_COLUMN] as string) : "",
         otherFields,
       });
 
