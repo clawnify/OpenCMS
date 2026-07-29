@@ -38,6 +38,14 @@ export interface BaseAttribute {
   /** Hidden from the table view. */
   hidden?: boolean;
   aiConfig?: AIConfig;
+  /**
+   * Custom-field marker (e.g. "clawnify::score.score"). When set, `type` is the
+   * underlying storage type and the custom-field registry drives presentation.
+   * See src/client/lib/custom-fields.tsx.
+   */
+  customField?: string;
+  /** Per-custom-field widget config (score min/max, badge values, …). */
+  options?: Record<string, unknown>;
 }
 
 export interface EnumerationAttribute extends BaseAttribute {
