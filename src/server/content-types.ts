@@ -47,14 +47,6 @@ export interface BaseAttribute {
   /** Locked = built-in, can be renamed/hidden but not deleted/type-changed. */
   configurable?: boolean;
   aiConfig?: AIConfig;
-  /**
-   * Custom-field marker (e.g. "clawnify::score.score"). Presentation-only:
-   * `type` remains the underlying storage type, so schema-sync, affinity, and
-   * entry coercion are unaffected. The client registry owns the widget.
-   */
-  customField?: string;
-  /** Per-custom-field widget config, opaque to the server. */
-  options?: Record<string, unknown>;
 }
 
 export interface StringAttribute extends BaseAttribute {
