@@ -18,14 +18,42 @@ import {
   ContentType,
   getContentTypeByPluralName,
 } from "./content-types";
+import { NOTES_COLUMN } from "./schema-sync";
 
 const ErrorSchema = z.object({ error: z.string() });
 const EntrySchema = z.record(z.string(), z.any());
 
 type Bindings = { DB: D1Database; UPLOADS: R2Bucket };
 
+/**
+ * Written into the OpenAPI spec (and from there `/llms.txt`) so an agent that
+ * only ever reads the machine contract still finds the brief.
+ */
+const NOTES_DOC =
+  `Every entry has a "${NOTES_COLUMN}" string — the author's brief: freeform context for ` +
+  "whoever writes the content (the angle to take, first-hand experience to draw on, " +
+  "sources, what to avoid). Read it before generating or editing an entry and treat it " +
+  "as the author's own material, not as content to publish verbatim. It never travels " +
+  `on /api/entries/** (a public route); read it from GET /api/notes/{pluralName}/{id} ` +
+  "and write it back through the entry PATCH.";
+
 function quote(ident: string): string {
   return '"' + ident.replace(/"/g, '""') + '"';
+}
+
+/**
+ * Entry reads are public — `clawnify.json` declares `GET /api/entries/**`, and
+ * app-router classifies *every* caller on a declared public route as `public`
+ * before it resolves identity, so there is no caller to branch on here even for
+ * the signed-in editor. Access control belongs to the route, not to a header
+ * test: notes are unconditionally absent from this payload and live on
+ * `/api/notes/*`, which is outside the public glob and therefore gated by the
+ * perimeter (`**` matches zero-or-more segments, so a sub-route under
+ * `/api/entries/` would have inherited the public grant).
+ */
+function withoutNotes<T extends Record<string, unknown>>(row: T): T {
+  const { [NOTES_COLUMN]: _internal, ...rest } = row;
+  return rest as T;
 }
 
 function slugify(input: string): string {
@@ -86,6 +114,13 @@ function coerce(value: unknown, attr: Attribute, fieldName: string): unknown {
   }
 }
 
+/** Notes are free text; an empty string is stored as NULL so "has notes" stays a null check. */
+function coerceNotes(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const s = String(value);
+  return s.trim() === "" ? null : s;
+}
+
 async function findUidAttribute(ct: ContentType): Promise<[string, Attribute & { type: "uid" }] | null> {
   for (const [name, attr] of Object.entries(ct.attributes)) {
     if (attr.type === "uid") return [name, attr as Attribute & { type: "uid" }];
@@ -98,6 +133,7 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
     createRoute({
       method: "get",
       path: "/api/entries/{pluralName}",
+      description: `List every entry in a library, newest first. ${NOTES_DOC}`,
       request: { params: z.object({ pluralName: z.string() }) },
       responses: {
         200: { content: { "application/json": { schema: z.array(EntrySchema) } }, description: "OK" },
@@ -107,10 +143,10 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
     async (c) => {
       const ct = await getContentTypeByPluralName(c.req.valid("param").pluralName);
       if (!ct) return c.json({ error: "Library not found" }, 404);
-      const rows = await query(
+      const rows = await query<Record<string, unknown>>(
         `SELECT * FROM ${quote(ct.collectionName)} ORDER BY updated_at DESC, id DESC`,
       );
-      return c.json(rows, 200);
+      return c.json(rows.map(withoutNotes), 200);
     },
   );
 
@@ -118,6 +154,7 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
     createRoute({
       method: "get",
       path: "/api/entries/{pluralName}/{id}",
+      description: `Get one entry. ${NOTES_DOC}`,
       request: { params: z.object({ pluralName: z.string(), id: z.string() }) },
       responses: {
         200: { content: { "application/json": { schema: EntrySchema } }, description: "OK" },
@@ -128,9 +165,44 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       const { pluralName, id } = c.req.valid("param");
       const ct = await getContentTypeByPluralName(pluralName);
       if (!ct) return c.json({ error: "Library not found" }, 404);
-      const row = await get(`SELECT * FROM ${quote(ct.collectionName)} WHERE id = ?`, [id]);
+      const row = await get<Record<string, unknown>>(
+        `SELECT * FROM ${quote(ct.collectionName)} WHERE id = ?`,
+        [id],
+      );
       if (!row) return c.json({ error: "Not found" }, 404);
-      return c.json(row, 200);
+      return c.json(withoutNotes(row), 200);
+    },
+  );
+
+  // The brief lives off the public `/api/entries/**` glob on purpose — see
+  // withoutNotes(). Nothing here checks the caller: `/api/notes/*` is undeclared
+  // in clawnify.json, so app-router refuses anonymous requests at the edge, and
+  // agent calls (which dispatch straight to the Worker) pass through.
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/api/notes/{pluralName}/{id}",
+      description: `Read one entry's author brief. ${NOTES_DOC}`,
+      request: { params: z.object({ pluralName: z.string(), id: z.string() }) },
+      responses: {
+        200: {
+          content: { "application/json": { schema: z.object({ notes: z.string().nullable() }) } },
+          description: "OK",
+        },
+        404: { content: { "application/json": { schema: ErrorSchema } }, description: "Not found" },
+      },
+    }),
+    async (c) => {
+      const { pluralName, id } = c.req.valid("param");
+      const ct = await getContentTypeByPluralName(pluralName);
+      if (!ct) return c.json({ error: "Library not found" }, 404);
+      const row = await get<Record<string, unknown>>(
+        `SELECT ${quote(NOTES_COLUMN)} FROM ${quote(ct.collectionName)} WHERE id = ?`,
+        [id],
+      );
+      if (!row) return c.json({ error: "Not found" }, 404);
+      const value = row[NOTES_COLUMN];
+      return c.json({ notes: typeof value === "string" ? value : null }, 200);
     },
   );
 
@@ -138,6 +210,7 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
     createRoute({
       method: "post",
       path: "/api/entries/{pluralName}",
+      description: `Create an entry. ${NOTES_DOC}`,
       request: {
         params: z.object({ pluralName: z.string() }),
         body: { content: { "application/json": { schema: z.record(z.string(), z.any()) } } },
@@ -165,6 +238,14 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
         cols.push(quote(name));
         placeholders.push("?");
         params.push(coerce(body[name], attr, name));
+      }
+
+      // `notes` is a platform column, not an attribute, so it isn't covered by
+      // the loop above.
+      if (body[NOTES_COLUMN] !== undefined) {
+        cols.push(quote(NOTES_COLUMN));
+        placeholders.push("?");
+        params.push(coerceNotes(body[NOTES_COLUMN]));
       }
 
       // Auto-generate uid (slug) from its targetField if not provided
@@ -205,6 +286,7 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
     createRoute({
       method: "patch",
       path: "/api/entries/{pluralName}/{id}",
+      description: `Update any subset of an entry's fields. ${NOTES_DOC}`,
       request: {
         params: z.object({ pluralName: z.string(), id: z.string() }),
         body: { content: { "application/json": { schema: z.record(z.string(), z.any()) } } },
@@ -238,6 +320,12 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
         }
         sets.push(`${quote(name)} = ?`);
         params.push(coerce(body[name], attr, name));
+      }
+
+      // `notes` is a platform column, not an attribute (see the POST handler).
+      if (NOTES_COLUMN in body) {
+        sets.push(`${quote(NOTES_COLUMN)} = ?`);
+        params.push(coerceNotes(body[NOTES_COLUMN]));
       }
 
       if (sets.length === 0) return c.json(row, 200);
