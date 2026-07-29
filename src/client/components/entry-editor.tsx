@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { X, Trash2, Sparkles, Loader2, NotebookPen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -150,6 +150,46 @@ export function EntryEditor({
   const top = entries.filter(([, a]) => a.type !== "richtext" && a.type !== "json" && a.type !== "html" && a.type !== "image");
   const bottom = entries.filter(([, a]) => a.type === "richtext" || a.type === "json" || a.type === "html" || a.type === "image");
 
+  // The brief reads as an extension of the description — the summary says what
+  // the entry is, the notes say how to write it — so it sits directly under
+  // that field. Libraries without a `description` get it after the short fields,
+  // still above the long-form content it briefs.
+  const notesAnchor =
+    top.find(([k]) => k === "description")?.[0] ?? top[top.length - 1]?.[0];
+
+  const notesPanel =
+    notesOpened || notes.trim() ? (
+      <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 space-y-2">
+        <div className="flex items-center gap-1.5 text-sm">
+          <NotebookPen className="size-3.5 text-muted-foreground" />
+          Notes
+        </div>
+        <Textarea
+          autoFocus={notesOpened}
+          value={notes}
+          onChange={(e) => {
+            setNotes(e.target.value);
+            patch({ [NOTES_KEY]: e.target.value });
+          }}
+          placeholder="The angle, what you'd say about this from your own experience, sources, what to avoid…"
+          className="min-h-24 bg-background text-sm"
+          data-field={NOTES_KEY}
+        />
+        <p className="text-xs text-muted-foreground">
+          Your brief for whoever writes this — you or an agent. Feeds AI generation as the
+          source of angle and first-hand experience. Not shown to public readers.
+        </p>
+      </div>
+    ) : (
+      <button
+        onClick={() => setNotesOpened(true)}
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <NotebookPen className="size-3.5" />
+        Add notes
+      </button>
+    );
+
   return (
     <div className="flex h-full flex-col bg-background border-l border-border">
       <div className="flex items-center gap-2 px-4 h-12 border-b border-border">
@@ -187,60 +227,31 @@ export function EntryEditor({
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
-        <div className="max-w-2xl mb-5">
-          {notesOpened || notes.trim() ? (
-            <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 space-y-2">
-              <div className="flex items-center gap-1.5 text-sm">
-                <NotebookPen className="size-3.5 text-muted-foreground" />
-                Notes
-              </div>
-              <Textarea
-                autoFocus={notesOpened}
-                value={notes}
-                onChange={(e) => {
-                  setNotes(e.target.value);
-                  patch({ [NOTES_KEY]: e.target.value });
-                }}
-                placeholder="The angle, what you'd say about this from your own experience, sources, what to avoid…"
-                className="min-h-24 bg-background text-sm"
-                data-field={NOTES_KEY}
-              />
-              <p className="text-xs text-muted-foreground">
-                Your brief for whoever writes this — you or an agent. Feeds AI generation as
-                the source of angle and first-hand experience. Not shown to public readers.
-              </p>
-            </div>
-          ) : (
-            <button
-              onClick={() => setNotesOpened(true)}
-              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-            >
-              <NotebookPen className="size-3.5" />
-              Add notes
-            </button>
-          )}
-        </div>
-
         <div className="space-y-4 max-w-2xl">
           {top.map(([key, attr]) => (
-            <FieldRow
-              key={key}
-              label={fieldLabel(key, attr)}
-              required={attr.required}
-              aiEnabled={!!attr.aiConfig?.enabled}
-              generating={!!generating[key]}
-              onRegenerate={() => runAIGeneration(key)}
-            >
-              <DynamicField
-                value={local[key]}
-                attr={attr}
-                fieldKey={key}
-                contextValues={contextValues}
-                publicOrigin={publicOrigin}
-                onChange={(v) => patch({ [key]: v })}
-              />
-            </FieldRow>
+            <Fragment key={key}>
+              <FieldRow
+                label={fieldLabel(key, attr)}
+                required={attr.required}
+                aiEnabled={!!attr.aiConfig?.enabled}
+                generating={!!generating[key]}
+                onRegenerate={() => runAIGeneration(key)}
+              >
+                <DynamicField
+                  value={local[key]}
+                  attr={attr}
+                  fieldKey={key}
+                  contextValues={contextValues}
+                  publicOrigin={publicOrigin}
+                  onChange={(v) => patch({ [key]: v })}
+                />
+              </FieldRow>
+              {key === notesAnchor && notesPanel}
+            </Fragment>
           ))}
+
+          {/* A library with no short fields at all still needs the panel. */}
+          {notesAnchor === undefined && notesPanel}
 
           {bottom.length > 0 && (
             <>
