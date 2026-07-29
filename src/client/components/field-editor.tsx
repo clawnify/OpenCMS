@@ -344,6 +344,16 @@ function AISection({
               ))}
             </div>
           )}
+          {/* Two things people reasonably get wrong: that a ref limits what the
+              model sees (it doesn't — every filled field is sent either way),
+              and that Notes need referencing to count (they don't). */}
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            The entry's <b className="font-medium">Notes</b> always go in first, weighted
+            above everything else — no ref needed. Every other filled field is sent as
+            context too, whether you reference it or not; a{" "}
+            <code className="font-mono">{`{{key}}`}</code> just drops that value into your
+            sentence.
+          </p>
           <div className="pt-1">
             <Toggle
               label="Auto-fill when empty"

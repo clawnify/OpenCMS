@@ -13,7 +13,7 @@ Auth, plugins, and integrations are handled by Clawnify — this template focuse
 - **Spreadsheet-style table** — every field is a column; cells are inline-editable (text, image, status, featured)
 - **Slide-in editor sheet** — opens as an overlay (table stays visible underneath) for rich-text editing
 - **Rich-text content** — Tiptap editor with image upload, links, lists, blockquote, code blocks, and headings
-- **Notes on every entry** — a freeform brief for whoever writes the content: the angle, your own experience, sources, what to avoid. Weighted above everything else in AI generation, so what comes out carries a point of view instead of the usual generic summary. Present in every library with no setup, kept out of the table, and served from its own non-public endpoint so it never rides along on the public read API
+- **Notes on every entry** — a freeform brief for whoever writes the content: the angle, what you know first-hand, what to avoid. Weighted above everything else in AI generation, so what comes out carries a point of view instead of the usual generic summary. Present in every library with no setup, kept out of the table, and served from its own non-public endpoint so it never rides along on the public read API
 - **Live status pill** — green / gray pill with embedded chevron, change inline or from the editor
 - **Auto-save with debounce** — 350ms debounce, Saving / Saved / Error indicator
 - **Slug auto-generation** — slugified from title, kept unique server-side, with live URL preview

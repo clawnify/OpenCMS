@@ -32,7 +32,7 @@ type Bindings = { DB: D1Database; UPLOADS: R2Bucket };
 const NOTES_DOC =
   `Every entry has a "${NOTES_COLUMN}" string — the author's brief: freeform context for ` +
   "whoever writes the content (the angle to take, first-hand experience to draw on, " +
-  "sources, what to avoid). Read it before generating or editing an entry and treat it " +
+  "what to avoid). Read it before generating or editing an entry and treat it " +
   "as the author's own material, not as content to publish verbatim. It never travels " +
   `on /api/entries/** (a public route); read it from GET /api/notes/{pluralName}/{id} ` +
   "and write it back through the entry PATCH.";
