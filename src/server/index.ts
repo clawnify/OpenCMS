@@ -16,7 +16,7 @@ type Env = {
   Bindings: { DB: D1Database; UPLOADS: R2Bucket; OPENROUTER_API_KEY?: string };
 };
 
-const app = createApp<Env>({ title: "Open CMS API", version: "1.0.0" });
+const app = createApp<Env>({ title: "OpenCMS API", version: "1.0.0" });
 
 // The read API is public (see clawnify.json public_routes) and meant to be
 // consumed cross-origin by external tools — Framer/AnySync, Zapier, sites.

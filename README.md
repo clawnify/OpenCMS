@@ -1,6 +1,6 @@
-<img src="readme-banner.png" alt="Open CMS preview" />
+<img src="readme-banner.png" alt="OpenCMS preview" />
 
-# Open CMS
+# OpenCMS
 
 [![Deploy with Clawnify](https://app.clawnify.com/deploy-button.svg)](https://app.clawnify.com/deploy?repo=clawnify/open-cms)
 
