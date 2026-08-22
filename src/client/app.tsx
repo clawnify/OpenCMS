@@ -107,7 +107,7 @@ export function App() {
       <main className="flex-1 flex flex-col min-w-0">
         <div className="flex items-center gap-2 px-4 h-12 border-b border-border">
           <h1 className="text-[1.25rem] font-bold tracking-tight leading-none truncate">
-            {activeCT?.info.displayName ?? "Open CMS"}
+            {activeCT?.info.displayName ?? "OpenCMS"}
           </h1>
           {activeCT && (
             <span className="text-xs text-muted-foreground tabular-nums">
