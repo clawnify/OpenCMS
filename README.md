@@ -2,7 +2,7 @@
 
 # OpenCMS
 
-[![Deploy with Clawnify](https://app.clawnify.com/deploy-button.svg)](https://app.clawnify.com/deploy?repo=clawnify/open-cms)
+[![Deploy with Clawnify](https://app.clawnify.com/deploy-button.svg)](https://app.clawnify.com/deploy?repo=clawnify/OpenCMS)
 
 A headless content-management studio built for **Clawnify**. **React + Tailwind CSS + Hono + D1 + R2**, deployed to Cloudflare Workers via [Clawnify](https://clawnify.com).
 
@@ -26,7 +26,7 @@ Auth, plugins, and integrations are handled by Clawnify — this template focuse
 ## Quickstart
 
 ```bash
-git clone https://github.com/clawnify/open-cms.git
+git clone https://github.com/clawnify/OpenCMS.git
 cd open-cms
 pnpm install
 ```
