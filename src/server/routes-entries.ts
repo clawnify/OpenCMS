@@ -23,6 +23,33 @@ import { NOTES_COLUMN } from "./schema-sync";
 const ErrorSchema = z.object({ error: z.string() });
 const EntrySchema = z.record(z.string(), z.any());
 
+/**
+ * `WHERE status = 'live'` — applied to the PUBLIC entry reads only.
+ *
+ * A new entry defaults to `status: "draft"`, and these reads used to return
+ * every row whatever its status, so a draft was world-readable the moment it was
+ * saved. The consuming site filtered `status === "live"` in its own code, which
+ * hides drafts on the page but not from anyone calling the API directly.
+ *
+ * There is deliberately NO caller check here. app-router resolves a declared
+ * public route to `authMethod = "public"` BEFORE it looks at IP, token or
+ * cookie, so every caller on `/api/entries/**` arrives stamped
+ * `X-Clawnify-Caller: public` with no identity headers — including the signed-in
+ * editor. Branching on `caller()` would therefore hide drafts from the very UI
+ * that authors them. Access control belongs to the route: the editor reads
+ * `/api/admin/entries/*`, which is outside the public glob and so gated by the
+ * perimeter, exactly like `/api/notes/*`.
+ *
+ * Only applied to content types that actually declare a `status` attribute:
+ * `draftAndPublish` is optional and is not added to types created through the
+ * UI, so filtering unconditionally would emit SQL against a missing column and
+ * 500 every collection without one.
+ */
+function publishedOnlyClause(ct: ContentType): string {
+  const hasStatus = Boolean((ct.attributes as Record<string, unknown> | undefined)?.status);
+  return hasStatus ? ` WHERE status = 'live'` : "";
+}
+
 type Bindings = { DB: D1Database; UPLOADS: R2Bucket };
 
 /**
@@ -35,7 +62,11 @@ const NOTES_DOC =
   "what to avoid). Read it before generating or editing an entry and treat it " +
   "as the author's own material, not as content to publish verbatim. It never travels " +
   `on /api/entries/** (a public route); read it from GET /api/notes/{pluralName}/{id} ` +
-  "and write it back through the entry PATCH.";
+  "and write it back through the entry PATCH. " +
+  "Each LIBRARY has a brief of its own too — the standing conventions every entry in it " +
+  "follows (house style, markup to use, what the surface rendering it supports). Read it " +
+  "from GET /api/notes/{pluralName} before writing any entry in that library, and treat " +
+  "it as binding unless the entry's own notes override it.";
 
 function quote(ident: string): string {
   return '"' + ident.replace(/"/g, '""') + '"';
@@ -144,7 +175,7 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       const ct = await getContentTypeByPluralName(c.req.valid("param").pluralName);
       if (!ct) return c.json({ error: "Library not found" }, 404);
       const rows = await query<Record<string, unknown>>(
-        `SELECT * FROM ${quote(ct.collectionName)} ORDER BY updated_at DESC, id DESC`,
+        `SELECT * FROM ${quote(ct.collectionName)}${publishedOnlyClause(ct)} ORDER BY updated_at DESC, id DESC`,
       );
       return c.json(rows.map(withoutNotes), 200);
     },
@@ -170,7 +201,93 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
         [id],
       );
       if (!row) return c.json({ error: "Not found" }, 404);
+      // A draft fetched by id is 404 to the public, not 403: confirming that an
+      // id exists is itself a leak, and the list above already hides it.
+      if (publishedOnlyClause(ct) && row.status !== "live") {
+        return c.json({ error: "Not found" }, 404);
+      }
       return c.json(withoutNotes(row), 200);
+    },
+  );
+
+  // Editor reads. Same rows as the public list, minus the published-only filter,
+  // so authors can see and edit their own drafts.
+  //
+  // `/api/admin/*` is UNDECLARED in clawnify.json — exactly like `/api/notes/*` —
+  // so app-router refuses anonymous callers at the edge and this needs no header
+  // test of its own. That is the whole reason it exists as a separate path
+  // instead of a query flag on the public route: a `?includeDrafts=1` on a
+  // declared-public route is reachable by anyone.
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/api/admin/entries/{pluralName}",
+      description: "List every entry in a library including drafts. Editor-only; not a public route.",
+      request: { params: z.object({ pluralName: z.string() }) },
+      responses: {
+        200: { content: { "application/json": { schema: z.array(EntrySchema) } }, description: "OK" },
+        404: { content: { "application/json": { schema: ErrorSchema } }, description: "Unknown library" },
+      },
+    }),
+    async (c) => {
+      const ct = await getContentTypeByPluralName(c.req.valid("param").pluralName);
+      if (!ct) return c.json({ error: "Library not found" }, 404);
+      const rows = await query<Record<string, unknown>>(
+        `SELECT * FROM ${quote(ct.collectionName)} ORDER BY updated_at DESC, id DESC`,
+      );
+      return c.json(rows.map(withoutNotes), 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/api/admin/entries/{pluralName}/{id}",
+      description: "Get one entry, draft or live. Editor-only; not a public route.",
+      request: { params: z.object({ pluralName: z.string(), id: z.string() }) },
+      responses: {
+        200: { content: { "application/json": { schema: EntrySchema } }, description: "OK" },
+        404: { content: { "application/json": { schema: ErrorSchema } }, description: "Not found" },
+      },
+    }),
+    async (c) => {
+      const { pluralName, id } = c.req.valid("param");
+      const ct = await getContentTypeByPluralName(pluralName);
+      if (!ct) return c.json({ error: "Library not found" }, 404);
+      const row = await get<Record<string, unknown>>(
+        `SELECT * FROM ${quote(ct.collectionName)} WHERE id = ?`,
+        [id],
+      );
+      if (!row) return c.json({ error: "Not found" }, 404);
+      return c.json(withoutNotes(row), 200);
+    },
+  );
+
+  // The library's own brief — the conventions that hold for every entry in it,
+  // as opposed to the per-entry brief below. It lives on the content type
+  // (`info.notes`) rather than in a row, because it outlives every entry and
+  // there is exactly one of it. Served from the same `/api/notes/*` prefix so
+  // "where are the notes" has one answer, and gated the same way: undeclared in
+  // clawnify.json, so the edge refuses anonymous callers.
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/api/notes/{pluralName}",
+      description: `Read a library's standing brief. ${NOTES_DOC}`,
+      request: { params: z.object({ pluralName: z.string() }) },
+      responses: {
+        200: {
+          content: { "application/json": { schema: z.object({ notes: z.string().nullable() }) } },
+          description: "OK",
+        },
+        404: { content: { "application/json": { schema: ErrorSchema } }, description: "Unknown library" },
+      },
+    }),
+    async (c) => {
+      const ct = await getContentTypeByPluralName(c.req.valid("param").pluralName);
+      if (!ct) return c.json({ error: "Library not found" }, 404);
+      const value = ct.info.notes;
+      return c.json({ notes: typeof value === "string" && value.trim() ? value : null }, 200);
     },
   );
 

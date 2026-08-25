@@ -44,10 +44,15 @@ export const api = {
     ),
 
   // ── Entries (any library) ───────────────────────────────────────
+  //
+  // Reads go to /api/admin/entries/* — the public /api/entries/** now serves
+  // published rows only, and the editor has to see drafts. Writes stay on the
+  // public path: it is declared public for GET alone, so POST/PATCH/DELETE are
+  // already gated by the perimeter.
   listEntries: (pluralName: string) =>
-    fetch(`/api/entries/${encodeURIComponent(pluralName)}`).then(json<Entry[]>),
+    fetch(`/api/admin/entries/${encodeURIComponent(pluralName)}`).then(json<Entry[]>),
   getEntry: (pluralName: string, id: number | string) =>
-    fetch(`/api/entries/${encodeURIComponent(pluralName)}/${id}`).then(json<Entry>),
+    fetch(`/api/admin/entries/${encodeURIComponent(pluralName)}/${id}`).then(json<Entry>),
   createEntry: (pluralName: string, body: Record<string, unknown> = {}) =>
     fetch(`/api/entries/${encodeURIComponent(pluralName)}`, {
       method: "POST",

@@ -27,6 +27,7 @@ const ContentTypeSchema = z.object({
     pluralName: z.string(),
     displayName: z.string(),
     description: z.string().optional(),
+    notes: z.string().optional(),
   }),
   options: z.record(z.string(), z.any()).default({}),
   attributes: z.record(z.string(), z.any()),
@@ -44,6 +45,7 @@ const ContentTypeInputSchema = z.object({
       pluralName: z.string(),
       displayName: z.string(),
       description: z.string().optional(),
+      notes: z.string().optional(),
     }),
     options: z.record(z.string(), z.any()).default({}),
     attributes: z.record(z.string(), z.any()).default({}),
@@ -57,6 +59,7 @@ const PatchSchema = z.object({
       pluralName: z.string().optional(),
       displayName: z.string().optional(),
       description: z.string().optional(),
+      notes: z.string().optional(),
     })
     .optional(),
   options: z.record(z.string(), z.any()).optional(),
