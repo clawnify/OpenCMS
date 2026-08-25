@@ -62,7 +62,11 @@ const NOTES_DOC =
   "what to avoid). Read it before generating or editing an entry and treat it " +
   "as the author's own material, not as content to publish verbatim. It never travels " +
   `on /api/entries/** (a public route); read it from GET /api/notes/{pluralName}/{id} ` +
-  "and write it back through the entry PATCH.";
+  "and write it back through the entry PATCH. " +
+  "Each LIBRARY has a brief of its own too — the standing conventions every entry in it " +
+  "follows (house style, markup to use, what the surface rendering it supports). Read it " +
+  "from GET /api/notes/{pluralName} before writing any entry in that library, and treat " +
+  "it as binding unless the entry's own notes override it.";
 
 function quote(ident: string): string {
   return '"' + ident.replace(/"/g, '""') + '"';
@@ -256,6 +260,34 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       );
       if (!row) return c.json({ error: "Not found" }, 404);
       return c.json(withoutNotes(row), 200);
+    },
+  );
+
+  // The library's own brief — the conventions that hold for every entry in it,
+  // as opposed to the per-entry brief below. It lives on the content type
+  // (`info.notes`) rather than in a row, because it outlives every entry and
+  // there is exactly one of it. Served from the same `/api/notes/*` prefix so
+  // "where are the notes" has one answer, and gated the same way: undeclared in
+  // clawnify.json, so the edge refuses anonymous callers.
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/api/notes/{pluralName}",
+      description: `Read a library's standing brief. ${NOTES_DOC}`,
+      request: { params: z.object({ pluralName: z.string() }) },
+      responses: {
+        200: {
+          content: { "application/json": { schema: z.object({ notes: z.string().nullable() }) } },
+          description: "OK",
+        },
+        404: { content: { "application/json": { schema: ErrorSchema } }, description: "Unknown library" },
+      },
+    }),
+    async (c) => {
+      const ct = await getContentTypeByPluralName(c.req.valid("param").pluralName);
+      if (!ct) return c.json({ error: "Library not found" }, 404);
+      const value = ct.info.notes;
+      return c.json({ notes: typeof value === "string" && value.trim() ? value : null }, 200);
     },
   );
 

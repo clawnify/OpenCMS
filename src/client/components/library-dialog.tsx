@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Trash2, ArrowLeft, ChevronRight, EyeOff, Plus } from "lucide-react";
+import { Trash2, ArrowLeft, ChevronRight, EyeOff, Plus, NotebookPen } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -40,6 +41,7 @@ type View =
   | { kind: "menu" }
   | { kind: "field"; key: string }
   | { kind: "newField" }
+  | { kind: "notes" }
   | { kind: "deleteFieldConfirm"; key: string }
   | { kind: "deleteLibraryConfirm" };
 
@@ -86,6 +88,7 @@ export function LibraryDialog({
             entryCount={entryCount}
             onPickField={(key) => setView({ kind: "field", key })}
             onAddField={() => setView({ kind: "newField" })}
+            onEditNotes={() => setView({ kind: "notes" })}
             onDeleteLibrary={() => setView({ kind: "deleteLibraryConfirm" })}
             onClose={onClose}
           />
@@ -113,6 +116,16 @@ export function LibraryDialog({
               setView({ kind: "menu" });
             }}
             onRemove={() => setView({ kind: "deleteFieldConfirm", key: view.key })}
+          />
+        ) : view.kind === "notes" ? (
+          <NotesView
+            contentType={contentType}
+            onBack={() => setView({ kind: "menu" })}
+            onSave={async (notes) => {
+              await api.patchContentType(contentType.uid, { info: { ...contentType.info, notes } });
+              onChange();
+              setView({ kind: "menu" });
+            }}
           />
         ) : view.kind === "newField" ? (
           <NewFieldView
@@ -160,6 +173,7 @@ function MenuView({
   entryCount,
   onPickField,
   onAddField,
+  onEditNotes,
   onDeleteLibrary,
   onClose,
 }: {
@@ -167,6 +181,7 @@ function MenuView({
   entryCount?: number;
   onPickField: (k: string) => void;
   onAddField: () => void;
+  onEditNotes: () => void;
   onDeleteLibrary: () => void;
   onClose: () => void;
 }) {
@@ -183,6 +198,28 @@ function MenuView({
       </DialogHeader>
 
       <div className="px-3 pb-3 max-h-[420px] overflow-y-auto">
+        {/* The brief goes above the fields, not with them: it describes the
+            library itself, and a library with two dozen columns buries anything
+            appended after the list. An author who never scrolls the schema still
+            has to pass the house style. */}
+        <button
+          onClick={onEditNotes}
+          className="w-full flex items-center gap-3 px-2 py-2 rounded-md hover:bg-muted text-left"
+        >
+          <NotebookPen className="size-4 text-muted-foreground shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="text-sm">Library notes</div>
+            <div className="text-xs text-muted-foreground truncate">
+              {contentType.info.notes?.trim()
+                ? contentType.info.notes.trim()
+                : "House style for every entry here"}
+            </div>
+          </div>
+          <ChevronRight className="size-4 text-muted-foreground" />
+        </button>
+
+        <Separator className="my-2" />
+
         {Object.entries(contentType.attributes).map(([key, attr]) => {
           const Icon = TYPE_ICON[attr.type];
           const label = fieldLabel(key, attr);
@@ -238,6 +275,67 @@ function MenuView({
         </Button>
         <Button variant="outline" onClick={onClose}>
           Close
+        </Button>
+      </DialogFooter>
+    </>
+  );
+}
+
+function NotesView({
+  contentType,
+  onBack,
+  onSave,
+}: {
+  contentType: ContentType;
+  onBack: () => void;
+  onSave: (notes: string) => Promise<void>;
+}) {
+  const [notes, setNotes] = useState(contentType.info.notes ?? "");
+  const [busy, setBusy] = useState(false);
+  return (
+    <>
+      <DialogHeader className="px-5 pt-5 pb-3 flex-row items-center gap-2 space-y-0">
+        <BackButton onClick={onBack} />
+        <NotebookPen className="size-4 text-muted-foreground" />
+        <DialogTitle className="flex-1">Library notes</DialogTitle>
+      </DialogHeader>
+      <DialogDescription className="sr-only">
+        Standing brief for every entry in {contentType.info.displayName}.
+      </DialogDescription>
+
+      <div className="px-5 pb-4 space-y-2">
+        <Textarea
+          autoFocus
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="How every entry here is written: house style, markup the site supports, what to avoid…"
+          className="min-h-40 text-sm"
+        />
+        <p className="text-xs text-muted-foreground">
+          The standing brief for every {contentType.info.singularName || "entry"} in this
+          library — read by anyone writing one, agents included, and fed to AI generation.
+          A single entry's own notes override it. Not shown to public readers.
+        </p>
+      </div>
+
+      <Separator />
+
+      <DialogFooter className="px-5 py-3 mx-0 mb-0">
+        <Button variant="outline" onClick={onBack} disabled={busy}>
+          Cancel
+        </Button>
+        <Button
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await onSave(notes.trim());
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "Saving…" : "Save"}
         </Button>
       </DialogFooter>
     </>

@@ -63,6 +63,7 @@ function buildSystemPrompt(args: {
   otherFields: string;
 }): string {
   const { fieldKey, attr, contentType, customInstructions, notes, otherFields } = args;
+  const libraryNotes = (contentType.info.notes ?? "").trim();
   const label = humanizeKey(fieldKey);
   const recordName =
     contentType.info.singularName || contentType.info.displayName || "record";
@@ -135,6 +136,25 @@ function buildSystemPrompt(args: {
         "smoothing them into generic statements, and never contradict them. They are " +
         "direction for you, not copy: don't quote them back verbatim or mention that notes " +
         "exist. Where they conflict with the instructions below, the notes win.",
+    );
+  }
+
+  // The library's standing brief. Below the entry notes and above the field's
+  // own prompt on purpose: the entry brief is the most specific thing anyone
+  // wrote about THIS entry, the field prompt is about this column everywhere,
+  // and the library note is the house style both of them sit inside.
+  //
+  // Image fields get the same guard the entry notes get. A house style written
+  // for prose ("open with the reader's problem") reads to an image model as
+  // instructions to render, which is how text ends up baked into a picture.
+  if (libraryNotes) {
+    lines.push(
+      "",
+      `The standing conventions for every ${recordName} in this library:`,
+      libraryNotes,
+      attr.type === "image"
+        ? "Apply these only to how the image looks. Do not render any of this text in the image."
+        : "Follow them unless the entry's own notes say otherwise.",
     );
   }
 

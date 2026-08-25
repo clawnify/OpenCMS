@@ -104,6 +104,14 @@ export interface ContentTypeInfo {
   pluralName: string;
   displayName: string;
   description?: string;
+  /**
+   * The library's standing brief: house style that applies to every entry here,
+   * as opposed to the per-entry `notes` column, which briefs one entry. Same
+   * concept at two scopes — see NOTES_DOC in routes-entries.ts. Read by
+   * buildSystemPrompt and by GET /api/notes/{pluralName}, so an agent writing an
+   * entry can find the conventions without being told they exist.
+   */
+  notes?: string;
 }
 
 export interface ContentTypeOptions {

@@ -71,6 +71,8 @@ export interface ContentTypeInfo {
   pluralName: string;
   displayName: string;
   description?: string;
+  /** Standing brief for every entry in this library. See the server type. */
+  notes?: string;
 }
 
 export interface ContentType {
