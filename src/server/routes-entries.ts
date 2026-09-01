@@ -159,6 +159,31 @@ async function findUidAttribute(ct: ContentType): Promise<[string, Attribute & {
   return null;
 }
 
+/**
+ * Resolve the `{id}` path segment to a numeric row id. An all-digit segment is
+ * an id; anything else is looked up against the type's uid (slug) column,
+ * which the create path keeps unique per collection — so the slug a caller
+ * already knows (from the entry's URL, or from having created it) addresses
+ * the entry without a list-and-map round trip. Returns null when nothing
+ * matches, or when the segment is non-numeric and the type has no uid.
+ */
+async function resolveEntryId(ct: ContentType, segment: string): Promise<number | null> {
+  if (/^\d+$/.test(segment)) return Number(segment);
+  const uidEntry = await findUidAttribute(ct);
+  if (!uidEntry) return null;
+  const row = await get<{ id: number }>(
+    `SELECT id FROM ${quote(ct.collectionName)} WHERE ${quote(uidEntry[0])} = ?`,
+    [segment],
+  );
+  return row ? row.id : null;
+}
+
+/** The `{id}` segment of every single-entry route accepts either handle. */
+const IdParam = z.string().openapi({
+  description:
+    "Numeric id, or the entry's slug (uid). An all-digit segment is treated as an id.",
+});
+
 export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
   app.openapi(
     createRoute({
@@ -186,7 +211,7 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       method: "get",
       path: "/api/entries/{pluralName}/{id}",
       description: `Get one entry. ${NOTES_DOC}`,
-      request: { params: z.object({ pluralName: z.string(), id: z.string() }) },
+      request: { params: z.object({ pluralName: z.string(), id: IdParam }) },
       responses: {
         200: { content: { "application/json": { schema: EntrySchema } }, description: "OK" },
         404: { content: { "application/json": { schema: ErrorSchema } }, description: "Not found" },
@@ -196,10 +221,14 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       const { pluralName, id } = c.req.valid("param");
       const ct = await getContentTypeByPluralName(pluralName);
       if (!ct) return c.json({ error: "Library not found" }, 404);
-      const row = await get<Record<string, unknown>>(
-        `SELECT * FROM ${quote(ct.collectionName)} WHERE id = ?`,
-        [id],
-      );
+      const entryId = await resolveEntryId(ct, id);
+      const row =
+        entryId === null
+          ? undefined
+          : await get<Record<string, unknown>>(
+              `SELECT * FROM ${quote(ct.collectionName)} WHERE id = ?`,
+              [entryId],
+            );
       if (!row) return c.json({ error: "Not found" }, 404);
       // A draft fetched by id is 404 to the public, not 403: confirming that an
       // id exists is itself a leak, and the list above already hides it.
@@ -244,7 +273,7 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       method: "get",
       path: "/api/admin/entries/{pluralName}/{id}",
       description: "Get one entry, draft or live. Editor-only; not a public route.",
-      request: { params: z.object({ pluralName: z.string(), id: z.string() }) },
+      request: { params: z.object({ pluralName: z.string(), id: IdParam }) },
       responses: {
         200: { content: { "application/json": { schema: EntrySchema } }, description: "OK" },
         404: { content: { "application/json": { schema: ErrorSchema } }, description: "Not found" },
@@ -254,10 +283,14 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       const { pluralName, id } = c.req.valid("param");
       const ct = await getContentTypeByPluralName(pluralName);
       if (!ct) return c.json({ error: "Library not found" }, 404);
-      const row = await get<Record<string, unknown>>(
-        `SELECT * FROM ${quote(ct.collectionName)} WHERE id = ?`,
-        [id],
-      );
+      const entryId = await resolveEntryId(ct, id);
+      const row =
+        entryId === null
+          ? undefined
+          : await get<Record<string, unknown>>(
+              `SELECT * FROM ${quote(ct.collectionName)} WHERE id = ?`,
+              [entryId],
+            );
       if (!row) return c.json({ error: "Not found" }, 404);
       return c.json(withoutNotes(row), 200);
     },
@@ -300,7 +333,7 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       method: "get",
       path: "/api/notes/{pluralName}/{id}",
       description: `Read one entry's author brief. ${NOTES_DOC}`,
-      request: { params: z.object({ pluralName: z.string(), id: z.string() }) },
+      request: { params: z.object({ pluralName: z.string(), id: IdParam }) },
       responses: {
         200: {
           content: { "application/json": { schema: z.object({ notes: z.string().nullable() }) } },
@@ -313,10 +346,14 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       const { pluralName, id } = c.req.valid("param");
       const ct = await getContentTypeByPluralName(pluralName);
       if (!ct) return c.json({ error: "Library not found" }, 404);
-      const row = await get<Record<string, unknown>>(
-        `SELECT ${quote(NOTES_COLUMN)} FROM ${quote(ct.collectionName)} WHERE id = ?`,
-        [id],
-      );
+      const entryId = await resolveEntryId(ct, id);
+      const row =
+        entryId === null
+          ? undefined
+          : await get<Record<string, unknown>>(
+              `SELECT ${quote(NOTES_COLUMN)} FROM ${quote(ct.collectionName)} WHERE id = ?`,
+              [entryId],
+            );
       if (!row) return c.json({ error: "Not found" }, 404);
       const value = row[NOTES_COLUMN];
       return c.json({ notes: typeof value === "string" ? value : null }, 200);
@@ -383,18 +420,25 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
         params.push(uniq);
       }
 
-      if (cols.length === 0) {
-        // Insert a row with only defaults — SQLite needs an explicit DEFAULT VALUES
-        await run(`INSERT INTO ${quote(ct.collectionName)} DEFAULT VALUES`);
-      } else {
-        await run(
-          `INSERT INTO ${quote(ct.collectionName)} (${cols.join(", ")}) VALUES (${placeholders.join(", ")})`,
-          params,
-        );
-      }
-      const created = await get(
-        `SELECT * FROM ${quote(ct.collectionName)} WHERE id = (SELECT MAX(id) FROM ${quote(ct.collectionName)})`,
-      );
+      // Recover the new row by this insert's own rowid, not MAX(id): two
+      // concurrent creates each get their own row back.
+      const inserted =
+        cols.length === 0
+          ? // Insert a row with only defaults — SQLite needs an explicit DEFAULT VALUES
+            await run(`INSERT INTO ${quote(ct.collectionName)} DEFAULT VALUES`)
+          : await run(
+              `INSERT INTO ${quote(ct.collectionName)} (${cols.join(", ")}) VALUES (${placeholders.join(", ")})`,
+              params,
+            );
+      // lastInsertRowid is 0 on bindings that don't surface insert meta; only
+      // then fall back to the (racy) MAX(id) recovery this used to rely on.
+      const created = inserted.lastInsertRowid
+        ? await get(`SELECT * FROM ${quote(ct.collectionName)} WHERE id = ?`, [
+            inserted.lastInsertRowid,
+          ])
+        : await get(
+            `SELECT * FROM ${quote(ct.collectionName)} WHERE id = (SELECT MAX(id) FROM ${quote(ct.collectionName)})`,
+          );
       return c.json(created!, 200);
     },
   );
@@ -405,7 +449,7 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       path: "/api/entries/{pluralName}/{id}",
       description: `Update any subset of an entry's fields. ${NOTES_DOC}`,
       request: {
-        params: z.object({ pluralName: z.string(), id: z.string() }),
+        params: z.object({ pluralName: z.string(), id: IdParam }),
         body: { content: { "application/json": { schema: z.record(z.string(), z.any()) } } },
       },
       responses: {
@@ -417,7 +461,11 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       const { pluralName, id } = c.req.valid("param");
       const ct = await getContentTypeByPluralName(pluralName);
       if (!ct) return c.json({ error: "Library not found" }, 404);
-      const row = await get(`SELECT * FROM ${quote(ct.collectionName)} WHERE id = ?`, [id]);
+      const entryId = await resolveEntryId(ct, id);
+      const row =
+        entryId === null
+          ? undefined
+          : await get(`SELECT * FROM ${quote(ct.collectionName)} WHERE id = ?`, [entryId]);
       if (!row) return c.json({ error: "Not found" }, 404);
       const body = c.req.valid("json") as Record<string, unknown>;
 
@@ -429,7 +477,7 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
         if (attr.type === "uid") {
           const provided = body[name];
           if (typeof provided === "string" && provided.trim()) {
-            const uniq = await uniqueValue(ct.collectionName, name, slugify(provided), id);
+            const uniq = await uniqueValue(ct.collectionName, name, slugify(provided), entryId!);
             sets.push(`${quote(name)} = ?`);
             params.push(uniq);
           }
@@ -447,12 +495,12 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
 
       if (sets.length === 0) return c.json(row, 200);
       sets.push(`updated_at = datetime('now')`);
-      params.push(id);
+      params.push(entryId);
       await run(
         `UPDATE ${quote(ct.collectionName)} SET ${sets.join(", ")} WHERE id = ?`,
         params,
       );
-      const next = await get(`SELECT * FROM ${quote(ct.collectionName)} WHERE id = ?`, [id]);
+      const next = await get(`SELECT * FROM ${quote(ct.collectionName)} WHERE id = ?`, [entryId]);
       return c.json(next!, 200);
     },
   );
@@ -461,7 +509,7 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
     createRoute({
       method: "delete",
       path: "/api/entries/{pluralName}/{id}",
-      request: { params: z.object({ pluralName: z.string(), id: z.string() }) },
+      request: { params: z.object({ pluralName: z.string(), id: IdParam }) },
       responses: {
         200: { content: { "application/json": { schema: z.object({ ok: z.boolean() }) } }, description: "Deleted" },
         404: { content: { "application/json": { schema: ErrorSchema } }, description: "Unknown library" },
@@ -471,7 +519,12 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       const { pluralName, id } = c.req.valid("param");
       const ct = await getContentTypeByPluralName(pluralName);
       if (!ct) return c.json({ error: "Library not found" }, 404);
-      await run(`DELETE FROM ${quote(ct.collectionName)} WHERE id = ?`, [id]);
+      // Delete is idempotent: an already-gone entry (unresolvable slug included)
+      // is a success, matching the numeric-id behavior.
+      const entryId = await resolveEntryId(ct, id);
+      if (entryId !== null) {
+        await run(`DELETE FROM ${quote(ct.collectionName)} WHERE id = ?`, [entryId]);
+      }
       return c.json({ ok: true }, 200);
     },
   );
