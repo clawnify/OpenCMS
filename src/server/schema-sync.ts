@@ -142,14 +142,32 @@ export async function syncTableToSchema(ct: ContentType) {
   for (const a of diff.add) {
     await run(a.sql.replace(/\n/g, " "));
   }
+  // uid (slug) columns are lookup keys — entry routes resolve by them and the
+  // create path checks them for uniqueness — but they arrive via ADD COLUMN,
+  // which SQLite forbids to carry UNIQUE, so without this they'd be unindexed
+  // scans. Non-unique on purpose: CREATE UNIQUE INDEX refuses to build over
+  // pre-existing duplicate values, which would wedge this sync.
+  for (const [name, attr] of Object.entries(ct.attributes)) {
+    if (attr.type !== "uid") continue;
+    await run(
+      `CREATE INDEX IF NOT EXISTS ${uidIndexName(ct.collectionName, name)} ON ${quote(ct.collectionName)} (${quote(name)})`,
+    );
+  }
 }
 
 /** Apply destructive ops — column drops. Caller is responsible for confirming. */
 export async function applyDestructive(ct: ContentType) {
   const diff = await diffTableAgainstSchema(ct);
   for (const d of diff.drop) {
+    // SQLite refuses to drop an indexed column, so remove the uid lookup
+    // index first (no-op for columns that never had one).
+    await run(`DROP INDEX IF EXISTS ${uidIndexName(ct.collectionName, d.name)}`);
     await run(d.sql.replace(/\n/g, " "));
   }
+}
+
+function uidIndexName(table: string, column: string): string {
+  return quote(`idx_${table}_${column}`);
 }
 
 async function ensureBaseTable(ct: ContentType) {
