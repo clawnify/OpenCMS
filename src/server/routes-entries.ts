@@ -18,7 +18,7 @@ import {
   ContentType,
   getContentTypeByPluralName,
 } from "./content-types";
-import { NOTES_COLUMN } from "./schema-sync";
+import { NOTES_COLUMN, ensureUidIndexes } from "./schema-sync";
 
 const ErrorSchema = z.object({ error: z.string() });
 const EntrySchema = z.record(z.string(), z.any());
@@ -116,6 +116,16 @@ async function uniqueValue(
     if (!row) return candidate;
     candidate = `${base}-${n++}`;
   }
+}
+
+/**
+ * The unique index behind a uid column (see ensureUidIndexes) is the backstop
+ * for the check-then-insert above: when two concurrent writes both pass the
+ * check, the second INSERT/UPDATE fails here instead of minting a duplicate.
+ * Same message on D1 and plain SQLite.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  return err instanceof Error && /UNIQUE constraint failed/i.test(err.message);
 }
 
 /**
@@ -373,6 +383,7 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
         200: { content: { "application/json": { schema: EntrySchema } }, description: "Created" },
         400: { content: { "application/json": { schema: ErrorSchema } }, description: "Bad input" },
         404: { content: { "application/json": { schema: ErrorSchema } }, description: "Unknown library" },
+        409: { content: { "application/json": { schema: ErrorSchema } }, description: "Slug taken by a concurrent write" },
       },
     }),
     async (c) => {
@@ -403,6 +414,7 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       }
 
       // Auto-generate uid (slug) from its targetField if not provided
+      let uidValue: { name: string; value: string } | null = null;
       if (uidEntry) {
         const [uidName, uidAttr] = uidEntry;
         const provided = body[uidName];
@@ -418,18 +430,25 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
         cols.push(quote(uidName));
         placeholders.push("?");
         params.push(uniq);
+        uidValue = { name: uidName, value: uniq };
       }
 
       // Recover the new row by this insert's own rowid, not MAX(id): two
       // concurrent creates each get their own row back.
-      const inserted =
-        cols.length === 0
-          ? // Insert a row with only defaults — SQLite needs an explicit DEFAULT VALUES
-            await run(`INSERT INTO ${quote(ct.collectionName)} DEFAULT VALUES`)
-          : await run(
-              `INSERT INTO ${quote(ct.collectionName)} (${cols.join(", ")}) VALUES (${placeholders.join(", ")})`,
-              params,
-            );
+      let inserted;
+      try {
+        inserted =
+          cols.length === 0
+            ? // Insert a row with only defaults — SQLite needs an explicit DEFAULT VALUES
+              await run(`INSERT INTO ${quote(ct.collectionName)} DEFAULT VALUES`)
+            : await run(
+                `INSERT INTO ${quote(ct.collectionName)} (${cols.join(", ")}) VALUES (${placeholders.join(", ")})`,
+                params,
+              );
+      } catch (err) {
+        if (!isUniqueViolation(err) || !uidValue) throw err;
+        return c.json({ error: `${uidValue.name} '${uidValue.value}' was just taken by another write, retry` }, 409);
+      }
       // lastInsertRowid is 0 on bindings that don't surface insert meta; only
       // then fall back to the (racy) MAX(id) recovery this used to rely on.
       const created = inserted.lastInsertRowid
@@ -455,6 +474,7 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       responses: {
         200: { content: { "application/json": { schema: EntrySchema } }, description: "Updated" },
         404: { content: { "application/json": { schema: ErrorSchema } }, description: "Not found" },
+        409: { content: { "application/json": { schema: ErrorSchema } }, description: "Slug taken by a concurrent write" },
       },
     }),
     async (c) => {
@@ -471,6 +491,7 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
 
       const sets: string[] = [];
       const params: unknown[] = [];
+      let renamedUid: { name: string; value: string } | null = null;
 
       for (const [name, attr] of Object.entries(ct.attributes)) {
         if (!(name in body)) continue;
@@ -480,6 +501,7 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
             const uniq = await uniqueValue(ct.collectionName, name, slugify(provided), entryId!);
             sets.push(`${quote(name)} = ?`);
             params.push(uniq);
+            renamedUid = { name, value: uniq };
           }
           continue;
         }
@@ -496,10 +518,19 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       if (sets.length === 0) return c.json(row, 200);
       sets.push(`updated_at = datetime('now')`);
       params.push(entryId);
-      await run(
-        `UPDATE ${quote(ct.collectionName)} SET ${sets.join(", ")} WHERE id = ?`,
-        params,
-      );
+      try {
+        await run(
+          `UPDATE ${quote(ct.collectionName)} SET ${sets.join(", ")} WHERE id = ?`,
+          params,
+        );
+      } catch (err) {
+        if (!isUniqueViolation(err) || !renamedUid) throw err;
+        return c.json({ error: `${renamedUid.name} '${renamedUid.value}' was just taken by another write, retry` }, 409);
+      }
+      // A slug rename is how an editor clears the duplicates that kept this
+      // column on a plain index; if this was the last one, upgrade now rather
+      // than at the next boot. No-op once the index is already unique.
+      if (renamedUid) await ensureUidIndexes(ct);
       const next = await get(`SELECT * FROM ${quote(ct.collectionName)} WHERE id = ?`, [entryId]);
       return c.json(next!, 200);
     },

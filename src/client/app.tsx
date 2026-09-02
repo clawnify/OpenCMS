@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Sidebar } from "./components/sidebar";
 import { EntriesTable } from "./components/entries-table";
+import { SlugDuplicatesBanner } from "./components/slug-duplicates-banner";
 import { EntryEditor } from "./components/entry-editor";
 import { useRouter } from "./hooks/use-router";
 import { useContentTypes } from "./hooks/use-content-types";
@@ -132,14 +133,21 @@ export function App() {
           </Button>
         </div>
         {activeCT ? (
-          <EntriesTable
-            contentType={activeCT}
-            entries={entries}
-            onOpen={(id) => navigate(`/${activeCT.info.pluralName}/${id}`)}
-            onPatch={patchEntry}
-            onContentTypeChange={refreshContentTypes}
-            selectedId={selectedId}
-          />
+          <>
+            <SlugDuplicatesBanner
+              contentType={activeCT}
+              entries={entries}
+              onOpen={(id) => navigate(`/${activeCT.info.pluralName}/${id}`)}
+            />
+            <EntriesTable
+              contentType={activeCT}
+              entries={entries}
+              onOpen={(id) => navigate(`/${activeCT.info.pluralName}/${id}`)}
+              onPatch={patchEntry}
+              onContentTypeChange={refreshContentTypes}
+              selectedId={selectedId}
+            />
+          </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
             No libraries yet. Create one from the sidebar.
