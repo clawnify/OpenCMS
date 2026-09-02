@@ -18,7 +18,7 @@ Auth, plugins, and integrations are handled by Clawnify — this template focuse
 - **Notes on every entry** — a freeform brief for whoever writes the content: the angle, what you know first-hand, what to avoid. Weighted above everything else in AI generation, so what comes out carries a point of view instead of the usual generic summary. Present in every library with no setup, kept out of the table, and served from its own non-public endpoint so it never rides along on the public read API
 - **Live status pill** — green / gray pill with embedded chevron, change inline or from the editor
 - **Auto-save with debounce** — 350ms debounce, Saving / Saved / Error indicator
-- **Slug auto-generation** — slugified from title, kept unique server-side, with live URL preview
+- **Slug auto-generation** — slugified from title, kept unique server-side (a unique index backs it, built as soon as the column has no duplicates; the editor flags any that do), with live URL preview
 - **Image library on R2** — upload from cell or rich-text editor, served from `/api/uploads/:filename`
 - **OpenAPI spec at `/api/openapi.json`** — Clawnify agents introspect the schema and call endpoints directly
 - **URL routing** — `pushState`-based, bookmarkable post URLs (`/posts/:id`)

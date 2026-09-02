@@ -10,7 +10,7 @@
  */
 
 import type { Attribute, AttributeType, ContentType } from "./content-types";
-import { query, run } from "./db";
+import { get, query, run } from "./db";
 
 interface ColumnInfo {
   name: string;
@@ -142,17 +142,69 @@ export async function syncTableToSchema(ct: ContentType) {
   for (const a of diff.add) {
     await run(a.sql.replace(/\n/g, " "));
   }
-  // uid (slug) columns are lookup keys — entry routes resolve by them and the
-  // create path checks them for uniqueness — but they arrive via ADD COLUMN,
-  // which SQLite forbids to carry UNIQUE, so without this they'd be unindexed
-  // scans. Non-unique on purpose: CREATE UNIQUE INDEX refuses to build over
-  // pre-existing duplicate values, which would wedge this sync.
+  await ensureUidIndexes(ct);
+}
+
+/** Values of one uid column that more than one row carries, with the rows. */
+async function duplicateValues(
+  ct: ContentType,
+  column: string,
+): Promise<Array<{ value: string; ids: number[] }>> {
+  const rows = await query<{ value: string; ids: string }>(
+    `SELECT ${quote(column)} AS value, GROUP_CONCAT(id) AS ids FROM ${quote(ct.collectionName)} ` +
+      `WHERE ${quote(column)} IS NOT NULL GROUP BY ${quote(column)} HAVING COUNT(*) > 1`,
+  );
+  return rows.map((row) => ({ value: row.value, ids: String(row.ids).split(",").map(Number) }));
+}
+
+/**
+ * Index every uid (slug) column, unique where the data allows it.
+ *
+ * Entry routes resolve by slug and the create path de-dupes in application
+ * code, so the column needs an index either way — and it needs the UNIQUE one
+ * to make that de-dupe a constraint rather than a check-then-insert that two
+ * concurrent creates can both pass. UNIQUE can't ride on the column itself
+ * (attributes arrive via ADD COLUMN, which SQLite forbids to carry UNIQUE), and
+ * CREATE UNIQUE INDEX refuses to build over existing duplicates — which, with
+ * this running at boot, would take the whole instance down. So: unique index
+ * when the column is clean, plain index plus a report when it isn't. Nothing
+ * here renames a row — a duplicate is somebody's published URL, and which one
+ * moves is the editor's call. Once they've fixed it, the next call upgrades
+ * the index (the entry PATCH path calls this after a slug rename).
+ */
+export async function ensureUidIndexes(ct: ContentType): Promise<void> {
+  const table = quote(ct.collectionName);
   for (const [name, attr] of Object.entries(ct.attributes)) {
     if (attr.type !== "uid") continue;
-    await run(
-      `CREATE INDEX IF NOT EXISTS ${uidIndexName(ct.collectionName, name)} ON ${quote(ct.collectionName)} (${quote(name)})`,
+    const plain = quote(uidIndexName(ct.collectionName, name));
+    const unique = uidUniqueIndexName(ct.collectionName, name);
+    if (await indexExists(unique)) continue;
+    const dupes = await duplicateValues(ct, name);
+    if (dupes.length === 0) {
+      // Two names, build-then-drop: the column is never without an index, a
+      // duplicate landing between the scan and the build fails this CREATE
+      // and leaves the plain index standing, and every statement is
+      // idempotent, so isolates booting at the same moment can't trip each
+      // other up.
+      await run(`CREATE UNIQUE INDEX IF NOT EXISTS ${quote(unique)} ON ${table} (${quote(name)})`);
+      await run(`DROP INDEX IF EXISTS ${plain}`);
+      continue;
+    }
+    await run(`CREATE INDEX IF NOT EXISTS ${plain} ON ${table} (${quote(name)})`);
+    console.warn(
+      `${ct.collectionName}.${name}: not unique yet, duplicates: ` +
+        dupes.map((d) => `'${d.value}' on ids ${d.ids.join(", ")}`).join("; "),
     );
   }
+}
+
+/** sqlite_master rather than PRAGMA index_list: identical on D1 and plain SQLite. */
+async function indexExists(name: string): Promise<boolean> {
+  const row = await get<{ name: string }>(
+    "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?",
+    [name],
+  );
+  return Boolean(row);
 }
 
 /** Apply destructive ops — column drops. Caller is responsible for confirming. */
@@ -160,14 +212,21 @@ export async function applyDestructive(ct: ContentType) {
   const diff = await diffTableAgainstSchema(ct);
   for (const d of diff.drop) {
     // SQLite refuses to drop an indexed column, so remove the uid lookup
-    // index first (no-op for columns that never had one).
-    await run(`DROP INDEX IF EXISTS ${uidIndexName(ct.collectionName, d.name)}`);
+    // index first, whichever shape it has (no-op for columns that never had one).
+    await run(`DROP INDEX IF EXISTS ${quote(uidIndexName(ct.collectionName, d.name))}`);
+    await run(`DROP INDEX IF EXISTS ${quote(uidUniqueIndexName(ct.collectionName, d.name))}`);
     await run(d.sql.replace(/\n/g, " "));
   }
 }
 
+/** The plain lookup index — what a uid column has while duplicates block the unique one. */
 function uidIndexName(table: string, column: string): string {
-  return quote(`idx_${table}_${column}`);
+  return `idx_${table}_${column}`;
+}
+
+/** The unique index; a different name so it can be built before the plain one is dropped. */
+function uidUniqueIndexName(table: string, column: string): string {
+  return `uidx_${table}_${column}`;
 }
 
 async function ensureBaseTable(ct: ContentType) {
