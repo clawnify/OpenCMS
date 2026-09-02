@@ -28,6 +28,10 @@ app.use(
   cors({
     origin: "*",
     allowMethods: ["GET", "OPTIONS"],
+    // A cross-origin reader cannot see a response header unless it is exposed,
+    // so a browser paging through a library would get the entries but not the
+    // total. Paging itself never depends on it — a short page means the end.
+    exposeHeaders: ["X-Total-Count"],
     maxAge: 86400,
   }),
 );
