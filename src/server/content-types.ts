@@ -25,6 +25,52 @@ export type AttributeType =
   | "json"
   | "uid";
 
+/**
+ * The attribute types whose column holds structure. Everything else is stored
+ * as text or a number, so an object or array reaching one of them can only be
+ * flattened — `String({})` is `"[object Object]"`, `String(["a","b"])` is
+ * `"a,b"`. Both are silent and lossy.
+ *
+ * This lives here, with the type union it describes, because two unrelated
+ * writers need the same answer: the entry CRUD layer coercing a submitted
+ * value, and the schema syncer rendering a column DEFAULT into DDL.
+ */
+const STRUCTURED_TYPES: ReadonlySet<string> = new Set(["json", "richtext"]);
+
+/** True when a value for this attribute type may be an object or array. */
+export function holdsStructure(type: string): boolean {
+  return STRUCTURED_TYPES.has(type);
+}
+
+/**
+ * Reject an attribute map whose defaults cannot survive being stored.
+ *
+ * A default is not written through the entry API — it is rendered straight into
+ * the column's DDL and then applied by SQLite to every row that omits the
+ * field. So an object default on a text column is worse than the same value
+ * sent as a write: no request ever carries it, nothing can validate it at write
+ * time, and SQLite cannot ALTER COLUMN to take it back. It has to be refused at
+ * the door that installs it.
+ *
+ * Returns the error message, or null when every default is storable.
+ */
+export function invalidDefault(
+  attributes: Record<string, { type?: string; default?: unknown }>,
+): string | null {
+  for (const [name, attr] of Object.entries(attributes ?? {})) {
+    const value = attr?.default;
+    if (value === null || value === undefined) continue;
+    if (typeof value !== "object") continue;
+    if (holdsStructure(String(attr?.type))) continue;
+    return (
+      `${name}: a "${attr?.type}" field cannot default to ` +
+      `${Array.isArray(value) ? "an array" : "an object"}. ` +
+      `Use a string default, or declare the field as "json".`
+    );
+  }
+  return null;
+}
+
 /** Per-attribute AI auto-fill config. Lives inside the attribute JSON blob. */
 export interface AIConfig {
   enabled: boolean;

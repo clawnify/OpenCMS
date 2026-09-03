@@ -17,6 +17,7 @@ import {
   Attribute,
   ContentType,
   getContentTypeByPluralName,
+  holdsStructure,
 } from "./content-types";
 import { NOTES_COLUMN, ensureUidIndexes } from "./schema-sync";
 
@@ -146,13 +147,6 @@ function isUniqueViolation(err: unknown): boolean {
 class FieldError extends Error {}
 
 /**
- * The only attribute types whose column holds structure. Every other branch of
- * coerce() ends in String() or Number(), so an object or array reaching one of
- * them is destroyed, not stored.
- */
-const STRUCTURED_TYPES: ReadonlySet<string> = new Set(["json", "richtext"]);
-
-/**
  * Reject a value the field cannot hold, rather than letting String() or
  * Number() turn it into a stored `"[object Object]"` or NaN.
  *
@@ -171,7 +165,7 @@ const STRUCTURED_TYPES: ReadonlySet<string> = new Set(["json", "richtext"]);
  * hold structure, because "declare the field json" is the actual fix.
  */
 function assertHoldable(value: unknown, attr: Attribute, fieldName: string): void {
-  if (typeof value === "object" && !STRUCTURED_TYPES.has(attr.type)) {
+  if (typeof value === "object" && !holdsStructure(attr.type)) {
     throw new FieldError(
       `${fieldName}: a "${attr.type}" field holds text, not ${Array.isArray(value) ? "an array" : "an object"}. ` +
         `Send a string, or declare this field as "json" to store structured values.`,

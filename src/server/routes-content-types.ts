@@ -13,6 +13,7 @@ import {
   ContentType,
   deleteContentType,
   getContentType,
+  invalidDefault,
   listContentTypes,
   upsertContentType,
 } from "./content-types";
@@ -109,11 +110,14 @@ export function registerContentTypeRoutes(app: OpenAPIHono<{ Bindings: Bindings 
       request: { body: { content: { "application/json": { schema: ContentTypeInputSchema } } } },
       responses: {
         200: { content: { "application/json": { schema: ContentTypeSchema } }, description: "Created" },
+        400: { content: { "application/json": { schema: ErrorSchema } }, description: "Bad input" },
         409: { content: { "application/json": { schema: ErrorSchema } }, description: "UID exists" },
       },
     }),
     async (c) => {
       const { contentType } = c.req.valid("json");
+      const bad = invalidDefault(contentType.attributes);
+      if (bad) return c.json({ error: bad }, 400);
       const existing = await getContentType(contentType.uid);
       if (existing) return c.json({ error: `UID ${contentType.uid} already exists` }, 409);
       await upsertContentType(contentType as Omit<ContentType, "created_at" | "updated_at">);
@@ -133,6 +137,7 @@ export function registerContentTypeRoutes(app: OpenAPIHono<{ Bindings: Bindings 
       },
       responses: {
         200: { content: { "application/json": { schema: ContentTypeSchema } }, description: "Updated" },
+        400: { content: { "application/json": { schema: ErrorSchema } }, description: "Bad input" },
         404: { content: { "application/json": { schema: ErrorSchema } }, description: "Not found" },
       },
     }),
@@ -141,6 +146,10 @@ export function registerContentTypeRoutes(app: OpenAPIHono<{ Bindings: Bindings 
       const patch = c.req.valid("json");
       const existing = await getContentType(uid);
       if (!existing) return c.json({ error: "Not found" }, 404);
+      if (patch.attributes) {
+        const bad = invalidDefault(patch.attributes);
+        if (bad) return c.json({ error: bad }, 400);
+      }
 
       const next: ContentType = {
         ...existing,
