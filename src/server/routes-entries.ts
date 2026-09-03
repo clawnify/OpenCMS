@@ -19,7 +19,7 @@ import {
   getContentTypeByPluralName,
   holdsStructure,
 } from "./content-types";
-import { NOTES_COLUMN, ensureUidIndexes } from "./schema-sync";
+import { NOTES_COLUMN, PLATFORM_COLUMNS, ensureUidIndexes } from "./schema-sync";
 
 const ErrorSchema = z.object({ error: z.string() });
 const EntrySchema = z.record(z.string(), z.any());
@@ -49,6 +49,167 @@ const EntrySchema = z.record(z.string(), z.any());
 function publishedOnlyClause(ct: ContentType): string {
   const hasStatus = Boolean((ct.attributes as Record<string, unknown> | undefined)?.status);
   return hasStatus ? ` WHERE status = 'live'` : "";
+}
+
+/**
+ * Upper bound on `?limit`. A list call is a single unindexed table scan, so the
+ * cap is what stops one request from reading a whole library into memory; a
+ * caller that genuinely wants everything omits `limit` and gets the historical
+ * unbounded response.
+ */
+const MAX_LIMIT = 500;
+
+/**
+ * Page size assumed when a caller asks for a `page` without saying how big one
+ * is. Matches the sibling templates' shared `paginate()` default, so the number
+ * means the same thing across the fleet.
+ */
+const DEFAULT_PAGE_SIZE = 25;
+
+/**
+ * `?limit`, `?page` and `?fields` on the list routes — all optional, and a
+ * request that sends none of them gets byte-for-byte what it got before they
+ * existed. That is deliberate: these routes are declared public in
+ * `clawnify.json`, so the callers are sites and third-party tools this repo
+ * cannot see, and silently truncating or trimming their responses would break
+ * pages rather than speed them up.
+ *
+ * The cost they exist to remove is real: a row carries every field of the
+ * entry, richtext bodies included, so listing a content library to render an
+ * index — or to let an agent pick an entry to edit — transfers the entire
+ * corpus to read a column of titles.
+ *
+ * Query values arrive as strings, so they are typed as strings here (which is
+ * also what the OpenAPI spec should say) and parsed below, where a bad value
+ * can return the same `{ error }` shape as every other failure in this file
+ * instead of a raw validation dump.
+ */
+const ListQuerySchema = z.object({
+  limit: z.string().optional().openapi({
+    param: { name: "limit", in: "query" },
+    description: `Maximum number of entries to return, 1-${MAX_LIMIT}. Omit to return every entry.`,
+    example: "25",
+  }),
+  page: z.string().optional().openapi({
+    param: { name: "page", in: "query" },
+    description: `1-based page number. Implies a default \`limit\` of ${DEFAULT_PAGE_SIZE} when limit is absent.`,
+    example: "2",
+  }),
+  fields: z.string().optional().openapi({
+    param: { name: "fields", in: "query" },
+    description:
+      "Comma-separated field names to return, e.g. `title,slug,status`. `id` is always " +
+      "included so the entries stay addressable. Omit to return every field. Use it to " +
+      "list a library without transferring its richtext bodies.",
+    example: "title,slug,status",
+  }),
+});
+
+/** Response header carrying the unpaged total, sent only when the caller pages. */
+const TotalCountHeader = {
+  "X-Total-Count": {
+    schema: { type: "integer" as const },
+    description:
+      "Total entries matching the request, ignoring limit/page. Sent only when limit or page is present.",
+  },
+};
+
+type ListWindow = { limit: number | null; offset: number; columns: string[] | null };
+
+/** Parse a positive integer query value; null means "absent", undefined means "malformed". */
+function parseCount(raw: string | undefined, min: number): number | null | undefined {
+  if (raw === undefined) return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < min) return undefined;
+  return n;
+}
+
+/**
+ * Which columns a caller may ask for: the type's own attributes plus the
+ * platform columns, minus `notes`. Notes are excluded rather than merely
+ * stripped after the fact, so `?fields=notes` is a 400 and never a silently
+ * empty column — the brief is served from `/api/notes/*` alone.
+ */
+function selectableColumns(ct: ContentType): Set<string> {
+  const cols = new Set<string>(Object.keys(ct.attributes));
+  for (const col of PLATFORM_COLUMNS) cols.add(col);
+  cols.delete(NOTES_COLUMN);
+  return cols;
+}
+
+/** Parse the list query into a SQL window, or return the message to 400 with. */
+function parseListWindow(
+  ct: ContentType,
+  q: { limit?: string; page?: string; fields?: string },
+): ListWindow | { error: string } {
+  const limit = parseCount(q.limit, 1);
+  if (limit === undefined) return { error: `limit must be an integer between 1 and ${MAX_LIMIT}` };
+  if (limit !== null && limit > MAX_LIMIT) {
+    return { error: `limit must be an integer between 1 and ${MAX_LIMIT}` };
+  }
+
+  const page = parseCount(q.page, 1);
+  if (page === undefined) return { error: "page must be an integer of 1 or more" };
+  // Asking for a page IS asking to paginate, so a page with no size gets the
+  // house default rather than an unbounded read that ignores the parameter.
+  const pageSize = limit ?? (page === null ? null : DEFAULT_PAGE_SIZE);
+  const offset = page === null ? 0 : (page - 1) * (pageSize as number);
+
+  let columns: string[] | null = null;
+  if (q.fields !== undefined) {
+    const allowed = selectableColumns(ct);
+    const asked = q.fields
+      .split(",")
+      .map((f) => f.trim())
+      .filter((f) => f !== "");
+    if (asked.length === 0) return { error: "fields must list at least one field name" };
+    const unknown = asked.filter((f) => !allowed.has(f));
+    if (unknown.length > 0) {
+      return {
+        error: `unknown field${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}. Known fields: ${[...allowed].sort().join(", ")}`,
+      };
+    }
+    // `id` addresses the entry on every other route, so it rides along even
+    // when it was not asked for; a list of rows nothing can be done with is
+    // not worth serving.
+    columns = ["id", ...asked.filter((f) => f !== "id")];
+  }
+
+  return { limit: pageSize, offset, columns };
+}
+
+/**
+ * `?fields` on a single-entry read. Same whitelist as the list, so a caller that
+ * learned the parameter on one route is not silently ignored on the other — the
+ * quietest way for a public API to lie about what it accepts.
+ */
+const FieldsQuerySchema = z.object({ fields: ListQuerySchema.shape.fields });
+
+function parseFields(ct: ContentType, q: { fields?: string }): string[] | null | { error: string } {
+  const win = parseListWindow(ct, { fields: q.fields });
+  return "error" in win ? win : win.columns;
+}
+
+/** SQL fragment + bindings for the window. Empty when the caller asked for no bound. */
+function windowClause(win: ListWindow): { sql: string; params: number[] } {
+  if (win.limit === null && win.offset === 0) return { sql: "", params: [] };
+  // SQLite rejects OFFSET without LIMIT; -1 is its documented "no limit".
+  return { sql: " LIMIT ? OFFSET ?", params: [win.limit ?? -1, win.offset] };
+}
+
+/**
+ * The unpaged total behind `X-Total-Count`. Only run when the caller pages, so a
+ * plain list call still costs exactly one query.
+ */
+async function countEntries(ct: ContentType, where: string): Promise<number> {
+  const row = await get<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM ${quote(ct.collectionName)}${where}`,
+  );
+  return row?.n ?? 0;
+}
+
+function selectList(win: ListWindow): string {
+  return win.columns ? win.columns.map(quote).join(", ") : "*";
 }
 
 type Bindings = { DB: D1Database; UPLOADS: R2Bucket };
@@ -256,19 +417,33 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
     createRoute({
       method: "get",
       path: "/api/entries/{pluralName}",
-      description: `List every entry in a library, newest first. ${NOTES_DOC}`,
-      request: { params: z.object({ pluralName: z.string() }) },
+      description:
+        "List the entries in a library, newest first. Returns every entry and every field " +
+        "unless `limit`, `page` or `fields` narrows it — prefer `fields` when you only need " +
+        `a few columns, since an entry carries its full richtext body. ${NOTES_DOC}`,
+      request: { params: z.object({ pluralName: z.string() }), query: ListQuerySchema },
       responses: {
-        200: { content: { "application/json": { schema: z.array(EntrySchema) } }, description: "OK" },
+        200: {
+          content: { "application/json": { schema: z.array(EntrySchema) } },
+          headers: TotalCountHeader,
+          description: "OK",
+        },
+        400: { content: { "application/json": { schema: ErrorSchema } }, description: "Bad query" },
         404: { content: { "application/json": { schema: ErrorSchema } }, description: "Unknown library" },
       },
     }),
     async (c) => {
       const ct = await getContentTypeByPluralName(c.req.valid("param").pluralName);
       if (!ct) return c.json({ error: "Library not found" }, 404);
+      const win = parseListWindow(ct, c.req.valid("query"));
+      if ("error" in win) return c.json({ error: win.error }, 400);
+      const where = publishedOnlyClause(ct);
+      const window = windowClause(win);
       const rows = await query<Record<string, unknown>>(
-        `SELECT * FROM ${quote(ct.collectionName)}${publishedOnlyClause(ct)} ORDER BY updated_at DESC, id DESC`,
+        `SELECT ${selectList(win)} FROM ${quote(ct.collectionName)}${where} ORDER BY updated_at DESC, id DESC${window.sql}`,
+        window.params,
       );
+      if (window.sql) c.header("X-Total-Count", String(await countEntries(ct, where)));
       return c.json(rows.map(withoutNotes), 200);
     },
   );
@@ -278,9 +453,13 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       method: "get",
       path: "/api/entries/{pluralName}/{id}",
       description: `Get one entry. ${NOTES_DOC}`,
-      request: { params: z.object({ pluralName: z.string(), id: IdParam }) },
+      request: {
+        params: z.object({ pluralName: z.string(), id: IdParam }),
+        query: FieldsQuerySchema,
+      },
       responses: {
         200: { content: { "application/json": { schema: EntrySchema } }, description: "OK" },
+        400: { content: { "application/json": { schema: ErrorSchema } }, description: "Bad query" },
         404: { content: { "application/json": { schema: ErrorSchema } }, description: "Not found" },
       },
     }),
@@ -288,12 +467,17 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       const { pluralName, id } = c.req.valid("param");
       const ct = await getContentTypeByPluralName(pluralName);
       if (!ct) return c.json({ error: "Library not found" }, 404);
+      const fields = parseFields(ct, c.req.valid("query"));
+      if (fields && "error" in fields) return c.json({ error: fields.error }, 400);
+      // `status` decides the draft check below, so it is read whatever the
+      // caller selected and dropped again before the row goes out.
+      const select = fields ? [...new Set([...fields, "status"])] : null;
       const entryId = await resolveEntryId(ct, id);
       const row =
         entryId === null
           ? undefined
           : await get<Record<string, unknown>>(
-              `SELECT * FROM ${quote(ct.collectionName)} WHERE id = ?`,
+              `SELECT ${select ? select.map(quote).join(", ") : "*"} FROM ${quote(ct.collectionName)} WHERE id = ?`,
               [entryId],
             );
       if (!row) return c.json({ error: "Not found" }, 404);
@@ -302,6 +486,7 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       if (publishedOnlyClause(ct) && row.status !== "live") {
         return c.json({ error: "Not found" }, 404);
       }
+      if (fields && !fields.includes("status")) delete row.status;
       return c.json(withoutNotes(row), 200);
     },
   );
@@ -318,19 +503,31 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
     createRoute({
       method: "get",
       path: "/api/admin/entries/{pluralName}",
-      description: "List every entry in a library including drafts. Editor-only; not a public route.",
-      request: { params: z.object({ pluralName: z.string() }) },
+      description:
+        "List the entries in a library including drafts, newest first. Takes the same " +
+        "`limit`, `page` and `fields` as the public list. Editor-only; not a public route.",
+      request: { params: z.object({ pluralName: z.string() }), query: ListQuerySchema },
       responses: {
-        200: { content: { "application/json": { schema: z.array(EntrySchema) } }, description: "OK" },
+        200: {
+          content: { "application/json": { schema: z.array(EntrySchema) } },
+          headers: TotalCountHeader,
+          description: "OK",
+        },
+        400: { content: { "application/json": { schema: ErrorSchema } }, description: "Bad query" },
         404: { content: { "application/json": { schema: ErrorSchema } }, description: "Unknown library" },
       },
     }),
     async (c) => {
       const ct = await getContentTypeByPluralName(c.req.valid("param").pluralName);
       if (!ct) return c.json({ error: "Library not found" }, 404);
+      const win = parseListWindow(ct, c.req.valid("query"));
+      if ("error" in win) return c.json({ error: win.error }, 400);
+      const window = windowClause(win);
       const rows = await query<Record<string, unknown>>(
-        `SELECT * FROM ${quote(ct.collectionName)} ORDER BY updated_at DESC, id DESC`,
+        `SELECT ${selectList(win)} FROM ${quote(ct.collectionName)} ORDER BY updated_at DESC, id DESC${window.sql}`,
+        window.params,
       );
+      if (window.sql) c.header("X-Total-Count", String(await countEntries(ct, "")));
       return c.json(rows.map(withoutNotes), 200);
     },
   );
@@ -339,10 +536,14 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
     createRoute({
       method: "get",
       path: "/api/admin/entries/{pluralName}/{id}",
-      description: "Get one entry, draft or live. Editor-only; not a public route.",
-      request: { params: z.object({ pluralName: z.string(), id: IdParam }) },
+      description: "Get one entry, draft or live. Takes the same `fields`. Editor-only; not a public route.",
+      request: {
+        params: z.object({ pluralName: z.string(), id: IdParam }),
+        query: FieldsQuerySchema,
+      },
       responses: {
         200: { content: { "application/json": { schema: EntrySchema } }, description: "OK" },
+        400: { content: { "application/json": { schema: ErrorSchema } }, description: "Bad query" },
         404: { content: { "application/json": { schema: ErrorSchema } }, description: "Not found" },
       },
     }),
@@ -350,12 +551,14 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       const { pluralName, id } = c.req.valid("param");
       const ct = await getContentTypeByPluralName(pluralName);
       if (!ct) return c.json({ error: "Library not found" }, 404);
+      const fields = parseFields(ct, c.req.valid("query"));
+      if (fields && "error" in fields) return c.json({ error: fields.error }, 400);
       const entryId = await resolveEntryId(ct, id);
       const row =
         entryId === null
           ? undefined
           : await get<Record<string, unknown>>(
-              `SELECT * FROM ${quote(ct.collectionName)} WHERE id = ?`,
+              `SELECT ${fields ? fields.map(quote).join(", ") : "*"} FROM ${quote(ct.collectionName)} WHERE id = ?`,
               [entryId],
             );
       if (!row) return c.json({ error: "Not found" }, 404);
