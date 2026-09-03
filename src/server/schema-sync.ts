@@ -58,12 +58,28 @@ export function sqliteAffinity(attr: Attribute): string {
   }
 }
 
-/** SQL literal for a default value, or null if not set. */
+/**
+ * SQL literal for a default value, or null if not set.
+ *
+ * Structure is serialized, never `String()`-ed: this literal is baked into the
+ * column DDL, so `String({})` here does not corrupt one write, it makes
+ * "[object Object]" the stored value of every row that omits the field — and
+ * SQLite cannot ALTER COLUMN to take a default back.
+ *
+ * The route that installs an attribute map refuses an object default on a
+ * non-structured field outright (see invalidDefault). This is the read-back
+ * side of that rule, and it is deliberately lossless rather than strict: it
+ * runs during boot schema-sync over content types that are ALREADY stored, so
+ * throwing on a default written before that check existed would turn stale data
+ * into a dead app. Serializing keeps the value recoverable instead.
+ */
 function defaultLiteral(attr: Attribute): string | null {
   if (attr.default === undefined || attr.default === null) return null;
   if (typeof attr.default === "boolean") return attr.default ? "1" : "0";
   if (typeof attr.default === "number") return String(attr.default);
-  return `'${String(attr.default).replace(/'/g, "''")}'`;
+  const literal =
+    typeof attr.default === "object" ? JSON.stringify(attr.default) : String(attr.default);
+  return `'${literal.replace(/'/g, "''")}'`;
 }
 
 /** Compose the column definition for a CREATE TABLE / ADD COLUMN clause. */

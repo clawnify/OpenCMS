@@ -17,6 +17,7 @@ import {
   Attribute,
   ContentType,
   getContentTypeByPluralName,
+  holdsStructure,
 } from "./content-types";
 import { NOTES_COLUMN, ensureUidIndexes } from "./schema-sync";
 
@@ -67,6 +68,15 @@ const NOTES_DOC =
   "follows (house style, markup to use, what the surface rendering it supports). Read it " +
   "from GET /api/notes/{pluralName} before writing any entry in that library, and treat " +
   "it as binding unless the entry's own notes override it.";
+
+/**
+ * Appended to the write routes' descriptions so the rule is in the OpenAPI spec
+ * an agent reads before it writes, not only in the 400 it gets afterwards.
+ */
+const WRITE_DOC =
+  'Only "json" and "richtext" fields accept an object or array; every other field type ' +
+  "holds text, and sending structure to one is a 400 rather than a stored " +
+  '"[object Object]". Send a string, or declare the field as "json".';
 
 function quote(ident: string): string {
   return '"' + ident.replace(/"/g, '""') + '"';
@@ -129,25 +139,65 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 /**
- * Coerce + validate an incoming value for a given attribute. Throws on bad input.
- * Returns the SQL-bindable value (string|number|null).
+ * A write the caller got wrong — a value the declared field cannot hold. Its
+ * own class so the handlers can answer 400 with the message, and so a genuine
+ * fault further down still surfaces as a 500 instead of being reported as the
+ * caller's fault.
+ */
+class FieldError extends Error {}
+
+/**
+ * Reject a value the field cannot hold, rather than letting String() or
+ * Number() turn it into a stored `"[object Object]"` or NaN.
+ *
+ * This is the whole reason the write path validates at all. `String({})` does
+ * not fail, it succeeds with garbage, so without this the request is a 200
+ * carrying a destroyed payload — and the two shapes below are the ones that
+ * reach a string or number column by accident:
+ *
+ *   - an object or array sent to anything but json/richtext,
+ *   - a value that is not a number sent to integer/decimal.
+ *
+ * Neither can be salvaged by guessing. Serializing an object into a field the
+ * author declared `string` would invent a type the schema does not have, and
+ * the value would come back out as a string, so the round trip would still not
+ * be the one the caller asked for. The error instead names the type that does
+ * hold structure, because "declare the field json" is the actual fix.
+ */
+function assertHoldable(value: unknown, attr: Attribute, fieldName: string): void {
+  if (typeof value === "object" && !holdsStructure(attr.type)) {
+    throw new FieldError(
+      `${fieldName}: a "${attr.type}" field holds text, not ${Array.isArray(value) ? "an array" : "an object"}. ` +
+        `Send a string, or declare this field as "json" to store structured values.`,
+    );
+  }
+}
+
+/**
+ * Coerce + validate an incoming value for a given attribute. Throws FieldError
+ * on bad input. Returns the SQL-bindable value (string|number|null).
  */
 function coerce(value: unknown, attr: Attribute, fieldName: string): unknown {
   if (value === null || value === undefined) return null;
+  assertHoldable(value, attr, fieldName);
   switch (attr.type) {
     case "boolean":
       return value ? 1 : 0;
     case "integer":
-      return Math.trunc(Number(value));
-    case "decimal":
-      return Number(value);
+    case "decimal": {
+      const n = Number(value);
+      if (!Number.isFinite(n)) {
+        throw new FieldError(`${fieldName}: expected a number, got ${JSON.stringify(value)}`);
+      }
+      return attr.type === "integer" ? Math.trunc(n) : n;
+    }
     case "json":
       return typeof value === "string" ? value : JSON.stringify(value);
     case "richtext":
       return typeof value === "string" ? value : JSON.stringify(value);
     case "enumeration":
       if ("enum" in attr && attr.enum && !attr.enum.includes(String(value))) {
-        throw new Error(`${fieldName}: not in enum [${attr.enum.join(", ")}]`);
+        throw new FieldError(`${fieldName}: not in enum [${attr.enum.join(", ")}]`);
       }
       return String(value);
     default:
@@ -155,9 +205,16 @@ function coerce(value: unknown, attr: Attribute, fieldName: string): unknown {
   }
 }
 
-/** Notes are free text; an empty string is stored as NULL so "has notes" stays a null check. */
+/**
+ * Notes are free text; an empty string is stored as NULL so "has notes" stays a
+ * null check. An object here is the same lossy write as above — the brief is
+ * prose, and `String({})` would file "[object Object]" as the author's brief.
+ */
 function coerceNotes(value: unknown): string | null {
   if (value === null || value === undefined) return null;
+  if (typeof value === "object") {
+    throw new FieldError(`${NOTES_COLUMN}: expected a string, got ${Array.isArray(value) ? "an array" : "an object"}`);
+  }
   const s = String(value);
   return s.trim() === "" ? null : s;
 }
@@ -374,7 +431,7 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
     createRoute({
       method: "post",
       path: "/api/entries/{pluralName}",
-      description: `Create an entry. ${NOTES_DOC}`,
+      description: `Create an entry. ${WRITE_DOC} ${NOTES_DOC}`,
       request: {
         params: z.object({ pluralName: z.string() }),
         body: { content: { "application/json": { schema: z.record(z.string(), z.any()) } } },
@@ -397,20 +454,25 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       const placeholders: string[] = [];
       const params: unknown[] = [];
 
-      for (const [name, attr] of Object.entries(ct.attributes)) {
-        if (uidEntry && uidEntry[0] === name) continue; // handle separately
-        if (body[name] === undefined) continue;
-        cols.push(quote(name));
-        placeholders.push("?");
-        params.push(coerce(body[name], attr, name));
-      }
+      try {
+        for (const [name, attr] of Object.entries(ct.attributes)) {
+          if (uidEntry && uidEntry[0] === name) continue; // handle separately
+          if (body[name] === undefined) continue;
+          cols.push(quote(name));
+          placeholders.push("?");
+          params.push(coerce(body[name], attr, name));
+        }
 
-      // `notes` is a platform column, not an attribute, so it isn't covered by
-      // the loop above.
-      if (body[NOTES_COLUMN] !== undefined) {
-        cols.push(quote(NOTES_COLUMN));
-        placeholders.push("?");
-        params.push(coerceNotes(body[NOTES_COLUMN]));
+        // `notes` is a platform column, not an attribute, so it isn't covered by
+        // the loop above.
+        if (body[NOTES_COLUMN] !== undefined) {
+          cols.push(quote(NOTES_COLUMN));
+          placeholders.push("?");
+          params.push(coerceNotes(body[NOTES_COLUMN]));
+        }
+      } catch (err) {
+        if (err instanceof FieldError) return c.json({ error: err.message }, 400);
+        throw err;
       }
 
       // Auto-generate uid (slug) from its targetField if not provided
@@ -466,13 +528,14 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
     createRoute({
       method: "patch",
       path: "/api/entries/{pluralName}/{id}",
-      description: `Update any subset of an entry's fields. ${NOTES_DOC}`,
+      description: `Update any subset of an entry's fields. ${WRITE_DOC} ${NOTES_DOC}`,
       request: {
         params: z.object({ pluralName: z.string(), id: IdParam }),
         body: { content: { "application/json": { schema: z.record(z.string(), z.any()) } } },
       },
       responses: {
         200: { content: { "application/json": { schema: EntrySchema } }, description: "Updated" },
+        400: { content: { "application/json": { schema: ErrorSchema } }, description: "Bad input" },
         404: { content: { "application/json": { schema: ErrorSchema } }, description: "Not found" },
         409: { content: { "application/json": { schema: ErrorSchema } }, description: "Slug taken by a concurrent write" },
       },
@@ -493,26 +556,31 @@ export function registerEntryRoutes(app: OpenAPIHono<{ Bindings: Bindings }>) {
       const params: unknown[] = [];
       let renamedUid: { name: string; value: string } | null = null;
 
-      for (const [name, attr] of Object.entries(ct.attributes)) {
-        if (!(name in body)) continue;
-        if (attr.type === "uid") {
-          const provided = body[name];
-          if (typeof provided === "string" && provided.trim()) {
-            const uniq = await uniqueValue(ct.collectionName, name, slugify(provided), entryId!);
-            sets.push(`${quote(name)} = ?`);
-            params.push(uniq);
-            renamedUid = { name, value: uniq };
+      try {
+        for (const [name, attr] of Object.entries(ct.attributes)) {
+          if (!(name in body)) continue;
+          if (attr.type === "uid") {
+            const provided = body[name];
+            if (typeof provided === "string" && provided.trim()) {
+              const uniq = await uniqueValue(ct.collectionName, name, slugify(provided), entryId!);
+              sets.push(`${quote(name)} = ?`);
+              params.push(uniq);
+              renamedUid = { name, value: uniq };
+            }
+            continue;
           }
-          continue;
+          sets.push(`${quote(name)} = ?`);
+          params.push(coerce(body[name], attr, name));
         }
-        sets.push(`${quote(name)} = ?`);
-        params.push(coerce(body[name], attr, name));
-      }
 
-      // `notes` is a platform column, not an attribute (see the POST handler).
-      if (NOTES_COLUMN in body) {
-        sets.push(`${quote(NOTES_COLUMN)} = ?`);
-        params.push(coerceNotes(body[NOTES_COLUMN]));
+        // `notes` is a platform column, not an attribute (see the POST handler).
+        if (NOTES_COLUMN in body) {
+          sets.push(`${quote(NOTES_COLUMN)} = ?`);
+          params.push(coerceNotes(body[NOTES_COLUMN]));
+        }
+      } catch (err) {
+        if (err instanceof FieldError) return c.json({ error: err.message }, 400);
+        throw err;
       }
 
       if (sets.length === 0) return c.json(row, 200);
