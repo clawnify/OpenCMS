@@ -76,8 +76,9 @@ export function holdsStructure(type: string): boolean {
  * the column's DDL and then applied by SQLite to every row that omits the
  * field. So an object default on a text column is worse than the same value
  * sent as a write: no request ever carries it, nothing can validate it at write
- * time, and SQLite cannot ALTER COLUMN to take it back. It has to be refused at
- * the door that installs it.
+ * time, and SQLite has no DDL that changes a column default, so taking one back
+ * means rebuilding the table. It has to be refused at the door that installs
+ * it.
  *
  * Returns the error message, or null when every default is storable.
  */
