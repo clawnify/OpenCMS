@@ -26,20 +26,47 @@ export type AttributeType =
   | "uid";
 
 /**
- * The attribute types whose column holds structure. Everything else is stored
- * as text or a number, so an object or array reaching one of them can only be
- * flattened — `String({})` is `"[object Object]"`, `String(["a","b"])` is
- * `"a,b"`. Both are silent and lossy.
+ * Whether each attribute type's column can hold structure. Everything false is
+ * stored as text or a number, so an object or array reaching one of them can
+ * only be flattened — `String({})` is `"[object Object]"`, `String(["a","b"])`
+ * is `"a,b"`. Both are silent and lossy.
  *
  * This lives here, with the type union it describes, because two unrelated
  * writers need the same answer: the entry CRUD layer coercing a submitted
  * value, and the schema syncer rendering a column DEFAULT into DDL.
+ *
+ * It is a total map rather than a set of the two true cases on purpose. A set
+ * answers "no" for a type nobody has classified yet, so adding a member to
+ * AttributeType would silently start rejecting valid writes to it. As a
+ * `Record<AttributeType, …>` the same edit is a compile error until the new
+ * type is answered for.
  */
-const STRUCTURED_TYPES: ReadonlySet<string> = new Set(["json", "richtext"]);
+const HOLDS_STRUCTURE: Record<AttributeType, boolean> = {
+  json: true,
+  richtext: true,
+  string: false,
+  text: false,
+  integer: false,
+  decimal: false,
+  boolean: false,
+  date: false,
+  datetime: false,
+  image: false,
+  html: false,
+  enumeration: false,
+  uid: false,
+};
 
-/** True when a value for this attribute type may be an object or array. */
+/**
+ * True when a value for this attribute type may be an object or array.
+ *
+ * Takes a plain string because one caller reads the type out of a stored
+ * attribute map, which is JSON and therefore untyped. An unrecognised type is
+ * treated as unable to hold structure — the safe answer, since it is the one
+ * that refuses the write rather than storing a flattened value.
+ */
 export function holdsStructure(type: string): boolean {
-  return STRUCTURED_TYPES.has(type);
+  return HOLDS_STRUCTURE[type as AttributeType] ?? false;
 }
 
 /**
