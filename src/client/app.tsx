@@ -1,3 +1,4 @@
+import { embedded, reportLocation } from "@clawnify/app/client";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { Plus, Search, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import type { ContentType, Entry } from "./lib/content-types";
 
 export function App() {
   const { path, navigate } = useRouter();
+  useEffect(() => { reportLocation(window.location.pathname + window.location.search); }, [path]);
   const { list: contentTypes, refresh: refreshContentTypes, setList: setContentTypes } =
     useContentTypes();
 
@@ -97,7 +99,7 @@ export function App() {
   }));
 
   return (
-    <div className="h-screen flex bg-background text-foreground overflow-hidden">
+    <div className={`h-screen flex ${embedded ? "flex-col" : ""} bg-background text-foreground overflow-hidden`}>
       <Sidebar
         collections={collections}
         activeId={activeCT?.info.pluralName ?? ""}

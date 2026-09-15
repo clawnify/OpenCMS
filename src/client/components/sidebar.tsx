@@ -1,3 +1,5 @@
+import { AppNav, embedded } from "@clawnify/app/client";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useState } from "react";
 import { Database, MoreHorizontal, Plus, Code2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -33,6 +35,7 @@ export function Sidebar({
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [apiOpen, setApiOpen] = useState(false);
+  const [fieldsOpen, setFieldsOpen] = useState(false);
 
   const menuCT = menuFor ? contentTypes.find((c) => c.info.pluralName === menuFor) ?? null : null;
   const activeCT = contentTypes.find((c) => c.info.pluralName === activeId) ?? null;
@@ -42,7 +45,27 @@ export function Sidebar({
       : undefined;
 
   return (
-    <aside className="w-64 border-r border-border bg-sidebar h-full flex flex-col">
+    <div className={embedded ? "shrink-0 border-b border-border bg-background" : "w-64 border-r border-border bg-sidebar h-full flex flex-col"}>
+      {embedded && <>
+        <AppNav title="CMS" icon="database" active={activeId}
+          groups={[{ label: "Libraries", items: collections.map(collection => ({
+            id: collection.id, label: collection.label, href: `/${collection.id}`, icon: "database", count: collection.count,
+          })) }]}
+          onNavigate={item => onSelect(item.id)} />
+        <div className="flex flex-wrap items-center gap-2 px-4 py-2">
+          <Button variant="ghost" size="sm" onClick={() => setNewOpen(true)}>New library</Button>
+          <Button variant="ghost" size="sm" disabled={!activeCT} onClick={() => setFieldsOpen(true)}>Fields</Button>
+          <Button variant="ghost" size="sm" disabled={!activeCT} onClick={() => setMenuFor(activeId)}>Library options</Button>
+          <Button variant="ghost" size="sm" disabled={!activeCT} onClick={() => setApiOpen(true)}>API</Button>
+        </div>
+        <Dialog open={fieldsOpen} onOpenChange={setFieldsOpen}>
+          <DialogContent className="max-h-[85vh] overflow-y-auto" aria-describedby={undefined}>
+            <DialogTitle>{activeCT?.info.displayName ?? "Library"} fields</DialogTitle>
+            {activeCT && <FieldsPanel contentType={activeCT} onChange={onContentTypesChange} />}
+          </DialogContent>
+        </Dialog>
+      </>}
+      {!embedded && <>
       <div className="px-3 pt-4 pb-2 flex gap-1 text-xs">
         <TabButton active={tab === "libraries"} onClick={() => setTab("libraries")}>
           Libraries
@@ -95,6 +118,8 @@ export function Sidebar({
         </div>
       )}
 
+      </>}
+
       {activeCT && (
         <ApiDialog
           open={apiOpen}
@@ -120,7 +145,7 @@ export function Sidebar({
           onSelect(ct.info.pluralName);
         }}
       />
-    </aside>
+    </div>
   );
 }
 

@@ -34,7 +34,7 @@ export function FieldsPanel({
         />
       ))}
       <p className="px-2 pt-2 pb-1 text-[11px] text-muted-foreground">
-        Use the … menu on the library row to add fields.
+        Open the library options to add fields.
       </p>
     </div>
   );
