@@ -49,13 +49,27 @@ export function ApiDialog({
           </Zone>
 
           <Zone label="Endpoints">
-            <EndpointRow method="GET" path={`/api/entries/${pluralName}`} desc="List all entries" />
+            <EndpointRow method="GET" path={`/api/entries/${pluralName}`} desc="List entries" />
             <EndpointRow method="GET" path={`/api/entries/${pluralName}/:id`} desc="Get one entry" />
             <EndpointRow method="GET" path="/api/openapi.json" desc="OpenAPI schema" />
           </Zone>
 
           <Zone label="Example">
             <CodeBlock text={`curl ${listUrl}`} />
+          </Zone>
+
+          <Zone label="Narrowing the list">
+            <CodeBlock text={`${listUrl}?fields=title,slug&limit=25&page=1`} />
+            <p className="text-xs text-muted-foreground">
+              A listed entry carries all of its content, so an index page that only needs a
+              few columns should say so with{" "}
+              <code className="font-mono">fields</code>. Add{" "}
+              <code className="font-mono">limit</code> and{" "}
+              <code className="font-mono">page</code> to page; the response's{" "}
+              <code className="font-mono">X-Total-Count</code> header carries the total. All
+              three are optional — plain{" "}
+              <code className="font-mono">GET</code> still returns everything.
+            </p>
           </Zone>
 
           <Zone label="In JavaScript">
