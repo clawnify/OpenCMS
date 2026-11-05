@@ -2,7 +2,7 @@
  * Thin OpenRouter chat-completions client.
  *
  * Text models use the plain content stream; image-capable models
- * (e.g. `google/gemini-2.5-flash-image-preview`) return generated
+ * (e.g. `google/gemini-2.5-flash-image`) return generated
  * images as base64 data URLs in `choices[0].message.images[]`.
  */
 
@@ -10,7 +10,7 @@ import { putUpload } from "./uploads";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const DEFAULT_TEXT_MODEL = "openai/gpt-4o-mini";
-const DEFAULT_IMAGE_MODEL = "google/gemini-2.5-flash-image-preview";
+const DEFAULT_IMAGE_MODEL = "google/gemini-2.5-flash-image";
 
 export interface AICallOptions {
   apiKey: string;
