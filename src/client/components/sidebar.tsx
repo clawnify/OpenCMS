@@ -47,11 +47,6 @@ export function Sidebar({
   return (
     <div className={embedded ? "shrink-0 border-b border-border bg-background" : "w-64 border-r border-border bg-sidebar h-full flex flex-col"}>
       {embedded && <>
-        <AppNav title="CMS" icon="database" active={activeId}
-          groups={[{ label: "Libraries", items: collections.map(collection => ({
-            id: collection.id, label: collection.label, href: `/${collection.id}`, icon: "database", count: collection.count,
-          })) }]}
-          onNavigate={item => onSelect(item.id)} />
         <div className="flex flex-wrap items-center gap-2 px-4 py-2">
           <Button variant="ghost" size="sm" onClick={() => setNewOpen(true)}>New library</Button>
           <Button variant="ghost" size="sm" disabled={!activeCT} onClick={() => setFieldsOpen(true)}>Fields</Button>
@@ -119,6 +114,15 @@ export function Sidebar({
       )}
 
       </>}
+
+      {/* One <AppNav>: inside Clawnify the dashboard draws the libraries; anywhere
+          else the sidebar above stays, with the notice card at its foot. */}
+      <AppNav title="CMS" icon="database" active={activeId}
+        groups={[{ label: "Libraries", items: collections.map(collection => ({
+          id: collection.id, label: collection.label, href: `/${collection.id}`, icon: "database", count: collection.count,
+        })) }]}
+        onNavigate={item => onSelect(item.id)}
+        standalone={(nav) => nav.card && <div className="px-2 pb-2">{nav.card}</div>} />
 
       {activeCT && (
         <ApiDialog
